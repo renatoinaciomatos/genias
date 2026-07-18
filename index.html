@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Notebook - Painel Genius Multiplayer</title>
+    <script src="https://jsdelivr.net"></script>
+    <style>
+        body { background: #111; color: white; font-family: sans-serif; text-align: center; }
+        .painel { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 300px; margin: 20px auto; }
+        .botao { width: 140px; height: 140px; border-radius: 15px; opacity: 0.4; transition: 0.1s; }
+        .ativo { opacity: 1 !important; box-shadow: 0 0 20px currentColor; }
+        #verde { background: #00ff00; color: #00ff00; }
+        #vermelho { background: #ff0000; color: #ff0000; }
+        #amarelo { background: #ffff00; color: #ffff00; }
+        #azul { background: #0000ff; color: #0000ff; }
+        .grid-rostos { display: flex; justify-content: center; gap: 30px; margin-top: 40px; }
+        .avatar-container { position: relative; width: 100px; text-align: center; }
+        .avatar { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 4px solid #00ff00; }
+        .eliminado img { border-color: #ff0000; filter: grayscale(1); }
+        .eliminado::after { content: "❌"; position: absolute; top: 30px; left: 35px; font-size: 40px; }
+    </style>
+</head>
+<body>
+    <h1>Genius Família - Painel Principal</h1>
+    <h2 id="status">Aguardando jogadores (0/3)...</h2>
+    <button id="btnIniciar" onclick="iniciarJogo()" style="display:none; padding:10px 20px;">Iniciar Partida</button>
+
+    <div class="painel">
+        <div id="verde" class="botao"></div>
+        <div id="vermelho" class="botao"></div>
+        <div id="amarelo" class="botao"></div>
+        <div id="azul" class="botao"></div>
+    </div>
+
+    <div class="grid-rostos" id="listaJogadores"></div>
+
+    <script>
+        const SUPABASE_URL = "SUA_URL_DO_SUPABASE";
+        const SUPABASE_KEY = "SUA_ANON_KEY_DO_SUPABASE";
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        let sequencia = [];
+        let jogadoresAtivos = [];
+
+        async function limparBanco() {
+            await _supabase.from('jogadores').delete().neq('id', 0);
+            await _supabase.from('partida').delete().neq('id', 0);
+        }
+        limparBanco();
+
+        _supabase.channel('custom-all-channel')
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, payload => {
+            atualizarLobby();
+        })
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, payload => {
+            if(payload.new.verificar_resposta) checarRespostaDoJogador(payload.new);
+        })
+        .subscribe();
+
+        async function atualizarLobby() {
+            const { data } = await _supabase.from('jogadores').select('*');
+            jogadoresAtivos = data;
+            
+            document.getElementById('status').innerText = `Jogadores na sala: (${data.length}/3)`;
+            const container = document.getElementById('listaJogadores');
+            container.innerHTML = '';
+
+            data.forEach(jog => {
+                const div = document.createElement('div');
+                div.className = `avatar-container ${!jog.vivo ? 'eliminado' : ''}`;
+                div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p>`;
+                container.appendChild(div);
+            });
+
+            const vivos = data.filter(j => j.vivo);
+            if (vivos.length === 1 && sequencia.length > 0) {
+                document.getElementById('status').innerText = `🏆 ${vivos[0].nome} Venceu o Jogo!`;
+                return;
+            }
+
+            if(data.length >= 3 && sequencia.length === 0) {
+                document.getElementById('btnIniciar').style.display = 'inline-block';
+            }
+        }
+
+        function piscarBotao(cor) {
+            const btn = document.getElementById(cor);
+            btn.classList.add('ativo');
+            setTimeout(() => btn.classList.remove('ativo'), 400);
+        }
+
+        async function iniciarJogo() {
+            document.getElementById('btnIniciar').style.display = 'none';
+            sequencia = [];
+            proximaRodada();
+        }
+
+        async function proximaRodada() {
+            const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
+            sequencia.push(cores[Math.floor(Math.random() * 4)]);
+
+            for (let cor of sequencia) {
+                piscarBotao(cor);
+                await new Promise(r => setTimeout(r, 600));
+            }
+
+            const vivos = jogadoresAtivos.filter(j => j.vivo);
+            await _supabase.from('partida').upsert({ 
+                id: 1, 
+                sequencia_atual: sequencia, 
+                verificar_resposta: false,
+                jogadores_vivos: vivos.map(v => v.id)
+            });
+            document.getElementById('status').innerText = "Vivos, repitam a sequência nos celulares!";
+        }
+
+        async function checarRespostaDoJogador(partida) {
+            const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', partida.ultimo_jogador_id).single();
+            
+            const acertou = JSON.stringify(partida.resposta_jogador) === JSON.stringify(sequencia);
+
+            if (!acertou) {
+                await _supabase.from('jogadores').update({ vivo: false }).eq('id', jogador.id);
+                alert(`${jogador.nome} errou e foi ELIMINADO!`);
+            }
+
+            const { data: todos } = await _supabase.from('jogadores').select('*');
+            const vivosRestantes = todos.filter(j => j.vivo);
+
+            if (vivosRestantes.length <= 1) {
+                atualizarLobby();
+            } else {
+                proximaRodada();
+            }
+        }
+    </script>
+</body>
+</html>
