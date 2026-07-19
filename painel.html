@@ -36,7 +36,7 @@
 
     <script>
         const SUPABASE_URL = "https://supabase.co";
-        const SUPABASE_KEY = "liberado_por_sql";
+        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFuYW1scmlhY21raGp1b3R1cXJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE2Nzg4OTYwMDAsImV4cCI6MjAwMDAwMDAwMH0.123";
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let sequencia = [];
@@ -122,7 +122,7 @@
             const acertou = JSON.stringify(partida.resposta_jogador) === JSON.stringify(sequencia);
 
             if (!acertou) {
-                await _supabase.from('jogadores').update({ vivo: false }).eq('id', ...[jogador.id]);
+                await _supabase.from('jogadores').update({ vivo: false }).eq('id', jogador.id);
                 alert(`${jogador.nome} errou e foi ELIMINADO!`);
             }
 
