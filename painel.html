@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Gênias Heiki</title>
+    <title>Notebook - Painel Genius Multiplayer</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -21,21 +21,40 @@
         #azul { background: #0000ff; color: #0000ff; }
         
         /* Lado Direito: Coluna de Jogadores */
-        .coluna-direita { width: 200px; background: #222; padding: 15px; border-radius: 15px; border: 1px solid #333; max-height: 500px; overflow-y: auto; }
+        .coluna-direita { width: 220px; background: #222; padding: 15px; border-radius: 15px; border: 1px solid #333; max-height: 500px; overflow-y: auto; }
         .coluna-direita h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 8px; }
         .grid-rostos { display: flex; flex-direction: column; gap: 15px; align-items: center; }
         
-        .avatar-container { position: relative; width: 80px; text-align: center; }
+        .avatar-container { position: relative; width: 100px; text-align: center; transition: 0.3s; }
         .avatar { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 4px solid #00ff00; }
-        .avatar-container p { margin: 5px 0 0 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .avatar-container p { margin: 5px 0 2px 0; font-size: 14px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .status-player { font-size: 11px; margin: 0; color: #aaa; }
         
-        .eliminado img { border-color: #ff0000; filter: grayscale(1); }
-        .eliminado::after { content: "❌"; position: absolute; top: 15px; left: 25px; font-size: 30px; }
+        /* Efeito de piscar para quem ainda NÃO enviou */
+        @keyframes pulsoPiscante {
+            0% { opacity: 0.4; transform: scale(0.95); }
+            50% { opacity: 1; transform: scale(1.02); }
+            100% { opacity: 0.4; transform: scale(0.95); }
+        }
+        .piscando { animation: pulsoPiscante 1.5s infinite ease-in-out; }
+        .piscando img { border-color: #ffaa00 !important; }
+        .piscando .status-player { color: #ffaa00; font-weight: bold; }
+
+        /* Estilo para quem já enviou e está safo/estável */
+        .submetido img { border-color: #00ffca !important; box-shadow: 0 0 10px #00ffca; }
+        .submetido .status-player { color: #00ffca; font-weight: bold; }
         
-        .controles { margin: 10px; }
-        .btn-ctrl { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; font-weight: bold; }
+        /* Estilo de Eliminado */
+        .eliminado img { border-color: #ff0000 !important; filter: grayscale(1); }
+        .eliminado::after { content: "❌"; position: absolute; top: 15px; left: 35px; font-size: 30px; z-index: 10; }
+        .eliminado .status-player { color: #ff0000; }
+        
+        /* Painel de Controle de Botões */
+        .controles { margin: 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
+        .btn-ctrl { padding: 10px 15px; font-size: 15px; cursor: pointer; border-radius: 5px; border: none; font-weight: bold; }
         #btnIniciar { background: #00ff00; color: black; }
         #btnPausar { background: #ffff00; color: black; }
+        #btnCorrigir { background: #00ffca; color: black; display: none; box-shadow: 0 0 15px #00ffca; }
         #btnReiniciar { background: #ff0000; color: white; }
     </style>
 </head>
@@ -49,6 +68,7 @@
             <div class="controles">
                 <button id="btnIniciar" class="btn-ctrl" onclick="iniciarJogo()">Iniciar</button>
                 <button id="btnPausar" class="btn-ctrl" onclick="pausarJogo()">Pausar</button>
+                <button id="btnCorrigir" class="btn-ctrl" onclick="clicouCorrigirManual()">👉 Corrigir Rodada</button>
                 <button id="btnReiniciar" class="btn-ctrl" onclick="reiniciarJogo()">Reiniciar</button>
             </div>
 
@@ -75,7 +95,7 @@
         let sequencia = [];
         let jogadoresAtivos = [];
         let jogoPausado = false;
-        let processandoValidacao = false;
+        let dadosPartidaAtual = null;
 
         const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
         function tocarSom(cor) {
@@ -96,19 +116,20 @@
         async function limparBanco() {
             try {
                 await _supabase.from('jogadores').delete().neq('id', 0);
-                await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [], verificar_resposta: false });
-            } catch(e) { console.error(e); }
+                await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [], verificar_resposta: false, resposta_jogador: [] });
+            } catch(e) { console.log(e); }
         }
         limparBanco();
 
-        // Canal em tempo real corrigido
+        // Escuta em tempo real estável
         _supabase.channel('custom-all-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
             atualizarLobby();
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, payload => {
-            if(payload.new && payload.new.verificar_resposta && !jogoPausado && !processandoValidacao) {
-                checarRespostaDoJogador(payload.new);
+            if(payload.new && !jogoPausado) {
+                dadosPartidaAtual = payload.new;
+                reavaliarInterfaceEnvios();
             }
         })
         .subscribe();
@@ -118,27 +139,53 @@
                 const { data } = await _supabase.from('jogadores').select('*');
                 if(!data) return;
                 jogadoresAtivos = data;
-                
-                const container = document.getElementById('listaJogadores');
-                container.innerHTML = '';
-
-                data.forEach(jog => {
-                    const div = document.createElement('div');
-                    div.className = `avatar-container ${!jog.vivo ? 'eliminado' : ''}`;
-                    div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p>`;
-                    container.appendChild(div);
-                });
-
-                const vivos = data.filter(j => j.vivo);
-                if (vivos.length === 0 && sequencia.length > 0) {
-                    document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
-                    await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
-                } else if (sequencia.length > 0) {
-                    document.getElementById('status').innerText = `Repitam a sequência! (${vivos.length} vivos)`;
-                } else {
-                    document.getElementById('status').innerText = `Aguardando jogadores... (${data.length} na sala)`;
-                }
+                reavaliarInterfaceEnvios();
             } catch(e) { console.error(e); }
+        }
+
+        // CONTROLADOR DE PISCAR E INTERFACE: Analisa quem mandou resposta e quem está pendente
+        function reavaliarInterfaceEnvios() {
+            const container = document.getElementById('listaJogadores');
+            container.innerHTML = '';
+
+            const vivos = jogadoresAtivos.filter(j => j.vivo);
+            
+            // Verifica se o banco já possui uma resposta ativa registrada aguardando avaliação
+            const temRespostaPendente = dadosPartidaAtual && dadosPartidaAtual.verificar_resposta;
+            document.getElementById('btnCorrigir').style.display = (temRespostaPendente && sequencia.length > 0) ? 'inline-block' : 'none';
+
+            jogadoresAtivos.forEach(jog => {
+                const div = document.createElement('div');
+                
+                if (!jog.vivo) {
+                    div.className = "avatar-container eliminado";
+                    div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Eliminado</span>`;
+                } else if (sequencia.length > 0) {
+                    // O jogo está rodando
+                    if (temRespostaPendente && dadosPartidaAtual.ultimo_jogador_id == jog.id) {
+                        // Este jogador já submeteu a resposta dele nesta rodada
+                        div.className = "avatar-container submetido";
+                        div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Enviado!</span>`;
+                    } else {
+                        // Ele ainda não submeteu ou está pensando: FICA PISCANDO
+                        div.className = "avatar-container piscando";
+                        div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Aguardando...</span>`;
+                    }
+                } else {
+                    // Lobby inicial
+                    div.className = "avatar-container";
+                    div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Pronto</span>`;
+                }
+                container.appendChild(div);
+            });
+
+            if (vivos.length === 0 && sequencia.length > 0) {
+                document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
+            } else if (sequencia.length > 0) {
+                document.getElementById('status').innerText = temRespostaPendente ? "Padrão recebido! Clique em Corrigir." : `Repitam a sequência! (${vivos.length} vivos)`;
+            } else {
+                document.getElementById('status').innerText = `Aguardando jogadores... (${jogadoresAtivos.length} na sala)`;
+            }
         }
 
         function piscarBotao(cor) {
@@ -152,7 +199,6 @@
         async function iniciarJogo() {
             if(jogadoresAtivos.length === 0) return alert("Aguarde pelo menos 1 jogador entrar!");
             jogoPausado = false;
-            processandoValidacao = false;
             document.getElementById('btnPausar').innerText = "Pausar";
             sequencia = [];
             await _supabase.from('jogadores').update({ vivo: true }).neq('id', 0);
@@ -171,13 +217,13 @@
             if(confirm("Deseja zerar a partida e remover todos os jogadores?")) {
                 await limparBanco();
                 sequencia = [];
+                dadosPartidaAtual = null;
                 atualizarLobby();
             }
         }
 
         async function proximaRodada() {
             if(jogoPausado) return;
-            processandoValidacao = false;
             
             const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
             sequencia.push(cores[Math.floor(Math.random() * 4)]);
@@ -195,23 +241,23 @@
                 sequencia_atual: sequencia, 
                 verificar_resposta: false,
                 status_jogo: "rodando",
+                resposta_jogador: [],
                 jogadores_vivos: vivos.map(v => v.id)
             }).eq('id', 1);
+            
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
         }
 
-        async function checarRespostaDoJogador(partida) {
-            processandoValidacao = true;
-            
-            try {
-                const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', partida.ultimo_jogador_id).single();
-                if(!jogador) {
-                    processandoValidacao = false;
-                    return;
-                }
+        // EXECUÇÃO MANUAL DO REQUISITO: Acionada ao clicar no botão "Corrigir Rodada"
+        async function clicouCorrigirManual() {
+            if(!dadosPartidaAtual || !dadosPartidaAtual.verificar_resposta) return;
+            document.getElementById('btnCorrigir').style.display = 'none';
 
-                // CORREÇÃO CRÍTICA: Força a conversão e limpeza dos arrays para garantir compatibilidade textual exata
-                const arrResposta = Array.isArray(partida.resposta_jogador) ? partida.resposta_jogador : JSON.parse(partida.resposta_jogador || "[]");
+            try {
+                const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', dadosPartidaAtual.ultimo_jogador_id).single();
+                if(!jogador) return;
+
+                const arrResposta = Array.isArray(dadosPartidaAtual.resposta_jogador) ? dadosPartidaAtual.resposta_jogador : JSON.parse(dadosPartidaAtual.resposta_jogador || "[]");
                 const arrSequencia = Array.isArray(sequencia) ? sequencia : [];
                 
                 const acertou = arrResposta.length === arrSequencia.length && arrResposta.every((val, i) => val === arrSequencia[i]);
@@ -223,29 +269,31 @@
                     document.getElementById('status').innerText = `✅ ${jogador.nome} acertou a sequência!`;
                 }
 
-                // Desativa o gatilho e calcula sobreviventes numa única requisição estável
+                // Carrega sobreviventes atualizados pós-cálculo
                 const { data: todos } = await _supabase.from('jogadores').select('*');
-                const vivosRestantes = todos ? todos.filter(j => j.vivo) : [];
+                jogadoresAtivos = todos || [];
+                const vivosRestantes = jogadoresAtivos.filter(j => j.vivo);
 
+                // Desliga o sinalizador de checagem limpando a rodada no banco
                 await _supabase.from('partida').update({ 
                     verificar_resposta: false,
+                    resposta_jogador: [],
                     jogadores_vivos: vivosRestantes.map(v => v.id)
                 }).eq('id', 1);
 
                 if (vivosRestantes.length === 0) {
-                    setTimeout(() => {
-                        atualizarLobby();
-                        processandoValidacao = false;
-                    }, 1500);
+                    setTimeout(async () => {
+                        document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
+                        await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
+                        reavaliarInterfaceEnvios();
+                    }, 2000);
                 } else {
-                    setTimeout(proximaRodada, 2000);
+                    setTimeout(proximaRodada, 2500);
                 }
 
-            } catch (erroGeral) {
-                console.error("Erro interno na validação:", erroGeral);
-                // Destrava o fluxo em caso de qualquer exceção imprevista de rede
+            } catch (err) {
+                console.error("Erro na checagem manual:", err);
                 await _supabase.from('partida').update({ verificar_resposta: false }).eq('id', 1);
-                processandoValidacao = false;
             }
         }
     </script>
