@@ -44,7 +44,7 @@
     </div>
 
     <script>
-        const SUPABASE_URL = "https://supabase.co";
+        const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co";
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j";
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -55,7 +55,7 @@
         const video = document.getElementById('video');
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
             .then(stream => video.srcObject = stream)
-            .catch(() => console.log("Câmera indisponível. Use a galeria."));
+            .catch(() => console.log("Câmera indisponível."));
 
         function tirarFoto() {
             const canvas = document.getElementById('canvas');
@@ -72,22 +72,27 @@
         }
 
         async function entrarNaPartida() {
-            const nome = document.getElementById('nomeJogador').value;
-            if(!nome || !minhaFotoBase64) return alert("Insira seu nome e foto!");
+            try {
+                const nome = document.getElementById('nomeJogador').value;
+                if(!nome || !minhaFotoBase64) return alert("Insira seu nome e foto!");
 
-            const { error } = await _supabase.from('jogadores').insert({
-                id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true
-            });
+                alert("Tentando conectar ao banco...");
 
-            if (error) {
-                alert("Erro ao entrar: " + error.message);
-                return;
+                const { error } = await _supabase.from('jogadores').insert([
+                    { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true }
+                ]);
+
+                if (error) {
+                    alert("O Supabase recusou: " + error.message + " | Detalhes: " + error.details);
+                    return;
+                }
+
+                document.getElementById('telaRegistro').style.display = 'none';
+                document.getElementById('telaJogo').style.display = 'block';
+                ouvirPartida();
+            } catch (err) {
+                alert("Erro crítico no código: " + err.message);
             }
-
-            document.getElementById('telaRegistro').style.display = 'none';
-            document.getElementById('telaJogo').style.display = 'block';
-
-            ouvirPartida();
         }
 
         function ouvirPartida() {
@@ -113,7 +118,6 @@
 
         function pressionar(cor) {
             palpites.push(cor);
-            navigator.vibrate?.(50);
         }
 
         async function enviarResposta() {
