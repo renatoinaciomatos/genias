@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jogador - Controle Genius</title>
+    <title>Gênias Heiki</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #222; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -53,7 +53,6 @@
             <button id="v-azul" class="btn-game" onclick="pressionar('azul')"></button>
         </div>
 
-        <!-- REQUISITO 2: Play e Reset locais -->
         <div class="memoria-controles">
             <button class="btn-action btn-play" id="btnPlay" onclick="reproduzirPadraoLocal()">▶️ Play (Ouvir)</button>
             <button class="btn-action btn-reset" id="btnReset" onclick="limparPadraoLocal()">❌ Reset (Limpar)</button>
@@ -63,7 +62,8 @@
     </div>
 
     <script>
-        let meuId = Date.now();
+        // Transforma o ID em string numérica estável para evitar estouro de tipo bigint/int8 no banco
+        let meuId = String(Date.now());
         let minhaFotoBase64 = "";
         let palpites = [];
         let _supabase = null;
@@ -73,16 +73,18 @@
 
         const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
         function tocarSom(cor) {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.frequency.value = frequencias[cor];
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start();
-            gain.gain.setValueAtTime(0.2, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-            osc.stop(ctx.currentTime + 0.3);
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.frequency.value = frequencias[cor];
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                gain.gain.setValueAtTime(0.2, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+                osc.stop(ctx.currentTime + 0.3);
+            } catch(e) {}
         }
 
         try {
@@ -113,12 +115,12 @@
         async function entrarNaPartida() {
             if (!_supabase) return alert("Erro de conexão.");
             const nome = document.getElementById('nomeJogador').value;
-            if(!nome || !minhaFotoBase64) return alert("Preencha o nome e tire a foto!");
+            if(!nome || !minhaFotoBase64) return alert("Preencha o nome e insira uma foto!");
 
             const { error } = await _supabase.from('jogadores').insert([
                 { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true }
             ]);
-            if (error) return alert("Erro: " + error.message);
+            if (error) return alert("Erro ao entrar: " + error.message);
 
             document.getElementById('telaRegistro').style.display = 'none';
             document.getElementById('telaJogo').style.display = 'block';
@@ -142,9 +144,12 @@
                     return;
                 }
 
-                if (dados.jogadores_vivos && dados.jogadores_vivos.includes(meuId)) {
-                    document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
-                    bloquearBotoes(false);
+                if (dados.jogadores_vivos && dados.jogadores_vivos.map(String).includes(meuId)) {
+                    // Libera a digitação caso a flag de verificação já tenha sido zerada pelo painel
+                    if (!dados.verificar_resposta) {
+                        document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
+                        bloquearBotoes(false);
+                    }
                 } else {
                     document.getElementById('statusPlayer').innerText = "Preste atenção no painel...";
                     bloquearBotoes(true);
@@ -185,7 +190,6 @@
             btn.innerText = palpites.length > 0 ? `Enviar Sequência (${palpites.length})` : "Enviar Sequência";
         }
 
-        // FUNÇÃO REQUISITO 2: Executa e mostra para o usuário o padrão que ele gravou localmente
         async function reproduzirPadraoLocal() {
             if(palpites.length === 0) return alert("Nenhum botão pressionado ainda!");
             bloquearBotoes(true);
@@ -198,25 +202,36 @@
             bloquearBotoes(false);
         }
 
-        // FUNÇÃO REQUISITO 2: Limpa a memória temporária do jogador
         function limparPadraoLocal() {
             palpites = [];
             atualizarContadorEnvio();
-            alert("Sua sequência digitada foi apagada. Pode recomeçar!");
+            alert("Sequência apagada!");
         }
 
+        // CORREÇÃO CRÍTICA: Envia os parâmetros em sincronia exata com o que o Polling do Painel espera receber
         async function enviarResposta() {
-            if(palpites.length === 0) return alert("Pressione os botões coloridos antes de enviar!");
+            if(palpites.length === 0) return alert("Monte uma sequência antes de enviar!");
             bloquearBotoes(true);
-            document.getElementById('statusPlayer').innerText = "Enviando...";
+            document.getElementById('statusPlayer').innerText = "Enviando ao painel...";
             
-            await _supabase.from('partida').update({
-                ultimo_jogador_id: meuId,
-                resposta_jogador: palpites,
-                verificar_resposta: true
-            }).eq('id', 1);
-            
-            document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
+            try {
+                const { error } = await _supabase.from('partida').update({
+                    ultimo_jogador_id: meuId,
+                    resposta_jogador: palpites,       // Grava o array diretamente
+                    verificar_resposta: true          // Acorda o botão de correção no painel
+                }).eq('id', 1);
+
+                if (error) {
+                    throw error;
+                }
+                
+                document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
+            } catch(err) {
+                console.error("Falha ao injetar dados no Supabase:", err);
+                alert("Erro técnico de rede ao computar resposta. Tente reenviar.");
+                bloquearBotoes(false);
+                document.getElementById('statusPlayer').innerText = "Erro ao enviar.";
+            }
         }
     </script>
 </body>
