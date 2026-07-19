@@ -4,33 +4,38 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jogador - Controle Genius</title>
-    <!-- Biblioteca oficial e estável do Supabase -->
-    <script src="https://jsdelivr.net"></script>
+    <!-- CORREÇÃO: Biblioteca oficial e estável do Supabase v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #222; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
         .pad-botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 90vw; max-width: 320px; margin: 30px auto; }
-        .btn-game { height: 130px; border-radius: 20px; border: none; font-size: 20px; font-weight: bold; cursor: pointer; }
-        #v-verde { background: #00ff00; } #v-vermelho { background: #ff0000; }
-        #v-amarelo { background: #ffff00; } #v-azul { background: #0000ff; }
+        .btn-game { height: 130px; border-radius: 20px; border: none; font-size: 20px; font-weight: bold; cursor: pointer; opacity: 0.4; transition: 0.1s; }
+        .btn-game:active, .ativo { opacity: 1 !important; transform: scale(0.98); box-shadow: 0 0 25px currentColor; }
+        #v-verde { background: #00ff00; color: #00ff00; } 
+        #v-vermelho { background: #ff0000; color: #ff0000; }
+        #v-amarelo { background: #ffff00; color: #ffff00; } 
+        #v-azul { background: #0000ff; color: #0000ff; }
         #telaJogo { display: none; }
         video, canvas { width: 100%; max-width: 200px; display: block; margin: 10px auto; border-radius: 10px; }
+        .input-text { padding: 10px; font-size: 16px; width: 80%; max-width: 260px; border-radius: 5px; border: 1px solid #555; background: #333; color: white; text-align: center; }
     </style>
 </head>
 <body>
 
     <div id="telaRegistro">
         <h2>Entrar no Jogo</h2>
-        <input type="text" id="nomeJogador" placeholder="Seu nome" style="padding: 10px; font-size: 16px;"><br><br>
+        <input type="text" id="nomeJogador" class="input-text" placeholder="Seu nome"><br><br>
         
         <label>Escolher da Galeria:</label><br>
         <input type="file" id="fotoArquivo" accept="image/*" onchange="carregarDaGaleria(event)"><br><br>
         
         <label>Ou usar a Câmera:</label>
         <video id="video" autoplay playsinline></video>
-        <button onclick="tirarFoto()">Capturar Foto</button>
+        <button onclick="tirarFoto()" style="padding: 5px 15px; margin-bottom: 15px;">Capturar Foto</button>
         <canvas id="canvas" style="display:none;"></canvas>
         
-        <br><br><button onclick="entrarNaPartida()" style="padding: 12px 30px; font-size: 18px; background: #00ff00; border: none; border-radius: 5px; cursor: pointer;">Entrar</button>
+        <br><br>
+        <button onclick="entrarNaPartida()" style="padding: 12px 30px; font-size: 18px; background: #00ff00; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Entrar</button>
     </div>
 
     <div id="telaJogo">
@@ -41,32 +46,41 @@
             <button id="v-amarelo" class="btn-game" onclick="pressionar('amarelo')"></button>
             <button id="v-azul" class="btn-game" onclick="pressionar('azul')"></button>
         </div>
-        <button onclick="enviarResposta()" style="background: white; color: black; padding: 10px 20px; font-size: 16px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Enviar Sequência</button>
+        <button id="btnEnviar" onclick="enviarResposta()" style="background: white; color: black; padding: 12px 30px; font-size: 18px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; width: 90vw; max-width: 320px;">Enviar Sequência</button>
     </div>
 
     <script>
-        // 1. VARIÁVEIS NO TOPO: Garante que o navegador conheça os objetos antes de qualquer inicialização externa
         let meuId = Date.now();
         let minhaFotoBase64 = "";
         let palpites = [];
         let _supabase = null;
 
-        // 2. CONFIGURAÇÕES DO BANCO
-        const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co/rest/v1/"; // Substitua pela sua URL real do Supabase
-        const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; // Substitua pela sua Key real
+        // CORREÇÃO: URL base correta sem subpastas adicionais
+        const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co"; 
+        const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; 
 
-        // 3. INICIALIZAÇÃO SEGURA
+        // Efeitos sonoros para interação do celular
+        const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
+        function tocarSom(cor) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.value = frequencias[cor];
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            gain.gain.setValueAtTime(0.2, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
+            osc.stop(ctx.currentTime + 0.3);
+        }
+
         try {
-            if (typeof supabase !== 'undefined') {
-                _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-            } else {
-                console.error("Biblioteca Supabase não foi carregada externamente.");
-            }
+            _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
         } catch (e) {
             console.error("Falha ao instanciar o Supabase Client:", e);
         }
 
-        // 4. LÓGICA DA CÂMERA
+        // LÓGICA DA CÂMERA
         const video = document.getElementById('video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
@@ -91,18 +105,15 @@
         }
 
         async function entrarNaPartida() {
-            if (!_supabase) {
-                return alert("Não foi possível conectar ao banco de dados. Verifique a URL do seu Supabase.");
-            }
-            try {
-                const nome = document.getElementById('nomeJogador').value;
-                if(!nome) return alert("Insira seu nome!");
-                if(!minhaFotoBase64) return alert("Escolha ou tire uma foto primeiro!");
+            if (!_supabase) return alert("Erro ao conectar ao banco.");
+            const nome = document.getElementById('nomeJogador').value;
+            if(!nome) return alert("Insira seu nome!");
+            if(!minhaFotoBase64) return alert("Escolha ou tire uma foto primeiro!");
 
+            try {
                 const { error } = await _supabase.from('jogadores').insert([
                     { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true }
                 ]);
-
                 if (error) return alert("Erro no banco: " + error.message);
 
                 document.getElementById('telaRegistro').style.display = 'none';
@@ -122,37 +133,61 @@
                 if(!dados) return;
                 
                 if(dados.status_jogo === "pausado") {
-                    document.getElementById('statusPlayer').innerText = "⏸️ Jogo Pausado pelo Notebook!";
+                    document.getElementById('statusPlayer').innerText = "⏸️ Jogo Pausado!";
+                    bloquearBotoes(true);
                     return;
                 }
+                if(dados.status_jogo === "fim") {
+                    document.getElementById('statusPlayer').innerText = "🏁 Partida encerrada!";
+                    bloquearBotoes(true);
+                    return;
+                }
+
                 if (dados.jogadores_vivos && dados.jogadores_vivos.includes(meuId)) {
                     document.getElementById('statusPlayer').innerText = "Sua vez! Repita a sequência:";
+                    bloquearBotoes(false);
                     palpites = [];
                 } else {
-                    document.getElementById('statusPlayer').innerText = "Aguarde os outros jogarem...";
+                    document.getElementById('statusPlayer').innerText = "Preste atenção no painel principal...";
+                    bloquearBotoes(true);
                 }
             })
             .subscribe();
 
-            _supabase.channel('meu-status').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
+            _supabase.channel('meu-status')
+            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
                 if(payload.new && !payload.new.vivo) {
                     document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
-                    document.querySelectorAll('.btn-game').forEach(b => b.disabled = true);
+                    bloquearBotoes(true);
+                    document.getElementById('btnEnviar').disabled = true;
                 }
             }).subscribe();
         }
 
+        function bloquearBotoes(status) {
+            document.querySelectorAll('.btn-game').forEach(b => b.disabled = status);
+        }
+
         function pressionar(cor) {
             palpites.push(cor);
+            tocarSom(cor);
+            
+            // Feedback visual rápido ao tocar
+            const btn = document.getElementById(`v-${cor}`);
+            btn.classList.add('ativo');
+            setTimeout(() => btn.classList.remove('ativo'), 200);
         }
 
         async function enviarResposta() {
             if (!_supabase) return;
+            document.getElementById('statusPlayer').innerText = "Enviando...";
+            
             await _supabase.from('partida').update({
                 ultimo_jogador_id: meuId,
                 resposta_jogador: palpites,
                 verificar_resposta: true
             }).eq('id', 1);
+            
             document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
         }
     </script>
