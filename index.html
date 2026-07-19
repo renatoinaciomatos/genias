@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gênias Heiki</title>
+    <title>Jogador - Controle Genius</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #222; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -13,7 +13,6 @@
         #v-verde { background: #00ff00; color: #00ff00; } #v-vermelho { background: #ff0000; color: #ff0000; }
         #v-amarelo { background: #ffff00; color: #ffff00; } #v-azul { background: #0000ff; color: #0000ff; }
         
-        /* Controles de memória locais (Play e Reset) */
         .memoria-controles { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 90vw; max-width: 320px; margin: 10px auto; }
         .btn-action { padding: 12px; font-size: 16px; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; }
         .btn-play { background: #00ffca; color: black; }
@@ -21,7 +20,7 @@
         .btn-enviar { background: white; color: black; padding: 14px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 90vw; max-width: 320px; margin-top: 15px; }
         
         #telaJogo { display: none; }
-        video, canvas { width: 100%; max-width: 180px; display: block; margin: 10px auto; border-radius: 10px; }
+        video, canvas { width: 100%; max-width: 150px; display: block; margin: 10px auto; border-radius: 10px; }
         .input-text { padding: 10px; font-size: 16px; width: 80%; max-width: 260px; border-radius: 5px; border: 1px solid #555; background: #333; color: white; text-align: center; }
     </style>
 </head>
@@ -31,14 +30,11 @@
         <h2>Entrar no Jogo</h2>
         <input type="text" id="nomeJogador" class="input-text" placeholder="Seu nome"><br><br>
         
-        <label>Escolher da Galeria:</label><br>
+        <label>Foto da Galeria ou Câmera:</label><br>
         <input type="file" id="fotoArquivo" accept="image/*" onchange="carregarDaGaleria(event)"><br><br>
-        
-        <label>Ou usar a Câmera:</label>
         <video id="video" autoplay playsinline></video>
-        <button onclick="tirarFoto()" style="padding: 5px 15px; margin-bottom: 15px;">Capturar Foto</button>
+        <button onclick="tirarFoto()" style="padding: 5px 15px; margin-bottom: 15px;">Tirar Foto</button>
         <canvas id="canvas" style="display:none;"></canvas>
-        
         <br><br>
         <button onclick="entrarNaPartida()" style="padding: 12px 30px; font-size: 18px; background: #00ff00; border: none; border-radius: 5px; cursor: pointer; font-weight: bold;">Entrar</button>
     </div>
@@ -54,56 +50,34 @@
         </div>
 
         <div class="memoria-controles">
-            <button class="btn-action btn-play" id="btnPlay" onclick="reproduzirPadraoLocal()">▶️ Play (Ouvir)</button>
-            <button class="btn-action btn-reset" id="btnReset" onclick="limparPadraoLocal()">❌ Reset (Limpar)</button>
+            <button class="btn-action btn-play" id="btnPlay" onclick="reproduzirPadraoLocal()">▶️ Play</button>
+            <button class="btn-action btn-reset" id="btnReset" onclick="limparPadraoLocal()">❌ Limpar</button>
         </div>
 
         <button id="btnEnviar" class="btn-enviar" onclick="enviarResposta()">Enviar Sequência</button>
     </div>
 
     <script>
-        // Transforma o ID em string numérica estável para evitar estouro de tipo bigint/int8 no banco
-        let meuId = String(Date.now());
+        // ID gerado como string pura e limpa
+        let meuId = "id_" + Math.random().toString(36).substr(2, 9);
         let minhaFotoBase64 = "";
         let palpites = [];
-        let _supabase = null;
-
         const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co"; 
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; 
-
-        const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
-        function tocarSom(cor) {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.frequency.value = frequencias[cor];
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                gain.gain.setValueAtTime(0.2, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.3);
-                osc.stop(ctx.currentTime + 0.3);
-            } catch(e) {}
-        }
-
-        try {
-            _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        } catch (e) { console.error(e); }
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         const video = document.getElementById('video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
-                .then(stream => video.srcObject = stream)
-                .catch(() => console.log("Câmera indisponível."));
+                .then(stream => video.srcObject = stream).catch(() => {});
         }
 
         function tirarFoto() {
             const canvas = document.getElementById('canvas');
-            canvas.width = 150; canvas.height = 150;
-            canvas.getContext('2d').drawImage(video, 0, 0, 150, 150);
+            canvas.width = 120; canvas.height = 120;
+            canvas.getContext('2d').drawImage(video, 0, 0, 120, 120);
             minhaFotoBase64 = canvas.toDataURL('image/jpeg');
-            alert("Foto capturada com sucesso!");
+            alert("Foto salva!");
         }
 
         function carregarDaGaleria(event) {
@@ -113,124 +87,95 @@
         }
 
         async function entrarNaPartida() {
-            if (!_supabase) return alert("Erro de conexão.");
             const nome = document.getElementById('nomeJogador').value;
-            if(!nome || !minhaFotoBase64) return alert("Preencha o nome e insira uma foto!");
+            if(!nome || !minhaFotoBase64) return alert("Nome e foto obrigatórios!");
 
+            // Insere na tabela de jogadores com a coluna 'resposta' nula inicialmente
             const { error } = await _supabase.from('jogadores').insert([
-                { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true }
+                { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true, resposta: null }
             ]);
-            if (error) return alert("Erro ao entrar: " + error.message);
+            if (error) return alert("Erro: " + error.message);
 
             document.getElementById('telaRegistro').style.display = 'none';
             document.getElementById('telaJogo').style.display = 'block';
-            ouvirPartida();
+            ouvirStatusPartida();
         }
 
-        function ouvirPartida() {
-            _supabase.channel('partida-channel')
+        function ouvirStatusPartida() {
+            // Monitora alterações gerais na partida para liberar/bloquear digitação
+            _supabase.channel('partida-global')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'partida' }, payload => {
-                const dados = payload.new;
-                if(!dados) return;
-                
-                if(dados.status_jogo === "pausado") {
-                    document.getElementById('statusPlayer').innerText = "⏸️ Jogo Pausado!";
-                    bloquearBotoes(true);
-                    return;
-                }
-                if(dados.status_jogo === "fim" || dados.status_jogo === "lobby") {
-                    document.getElementById('statusPlayer').innerText = "🏁 Aguardando início...";
-                    bloquearBotoes(true);
-                    return;
-                }
-
-                if (dados.jogadores_vivos && dados.jogadores_vivos.map(String).includes(meuId)) {
-                    // Libera a digitação caso a flag de verificação já tenha sido zerada pelo painel
-                    if (!dados.verificar_resposta) {
-                        document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
-                        bloquearBotoes(false);
-                    }
+                const d = payload.new;
+                if(!d) return;
+                if(d.status_jogo === "rodando") {
+                     document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
+                     bloquearBotoes(false);
                 } else {
-                    document.getElementById('statusPlayer').innerText = "Preste atenção no painel...";
-                    bloquearBotoes(true);
+                     document.getElementById('statusPlayer').innerText = "Aguardando próxima rodada...";
+                     bloquearBotoes(true);
                 }
             }).subscribe();
 
-            _supabase.channel('meu-status')
+            // Monitora se EU fui eliminado
+            _supabase.channel('status-individual')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
                 if(payload.new && !payload.new.vivo) {
                     document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
                     bloquearBotoes(true);
-                    document.getElementById('btnEnviar').disabled = true;
                 }
             }).subscribe();
         }
 
         function bloquearBotoes(status) {
-            document.querySelectorAll('.btn-game, .btn-action').forEach(b => b.disabled = status);
+            document.querySelectorAll('.btn-game, .btn-action, .btn-enviar').forEach(b => b.disabled = status);
         }
 
         function pressionar(cor) {
             palpites.push(cor);
-            tocarSom(cor);
             piscarLocal(cor);
-            atualizarContadorEnvio();
+            document.getElementById('btnEnviar').innerText = `Enviar Sequência (${palpites.length})`;
         }
 
         function piscarLocal(cor) {
             const btn = document.getElementById(`v-${cor}`);
             if(btn) {
                 btn.classList.add('ativo');
-                setTimeout(() => btn.classList.remove('ativo'), 200);
+                setTimeout(() => btn.classList.remove('ativo'), 150);
             }
-        }
-
-        function atualizarContadorEnvio() {
-            const btn = document.getElementById('btnEnviar');
-            btn.innerText = palpites.length > 0 ? `Enviar Sequência (${palpites.length})` : "Enviar Sequência";
-        }
-
-        async function reproduzirPadraoLocal() {
-            if(palpites.length === 0) return alert("Nenhum botão pressionado ainda!");
-            bloquearBotoes(true);
-            
-            for(let cor of palpites) {
-                piscarLocal(cor);
-                tocarSom(cor);
-                await new Promise(r => setTimeout(r, 400));
-            }
-            bloquearBotoes(false);
         }
 
         function limparPadraoLocal() {
             palpites = [];
-            atualizarContadorEnvio();
-            alert("Sequência apagada!");
+            document.getElementById('btnEnviar').innerText = "Enviar Sequência";
         }
 
-        // CORREÇÃO CRÍTICA: Envia os parâmetros em sincronia exata com o que o Polling do Painel espera receber
-        async function enviarResposta() {
-            if(palpites.length === 0) return alert("Monte uma sequência antes de enviar!");
-            bloquearBotoes(true);
-            document.getElementById('statusPlayer').innerText = "Enviando ao painel...";
-            
-            try {
-                const { error } = await _supabase.from('partida').update({
-                    ultimo_jogador_id: meuId,
-                    resposta_jogador: palpites,       // Grava o array diretamente
-                    verificar_resposta: true          // Acorda o botão de correção no painel
-                }).eq('id', 1);
+        async function reproduzirPadraoLocal() {
+            if(palpites.length === 0) return;
+            for(let cor of palpites) {
+                piscarLocal(cor);
+                await new Promise(r => setTimeout(r, 350));
+            }
+        }
 
-                if (error) {
-                    throw error;
-                }
-                
+        // ENVIANDO DIRETO PARA A SUA LINHA DE JOGADOR
+        async function enviarResposta() {
+            if(palpites.length === 0) return alert("Crie uma sequência!");
+            bloquearBotoes(true);
+            document.getElementById('statusPlayer').innerText = "Enviando...";
+
+            try {
+                // Atualiza o campo 'resposta' na linha do próprio jogador
+                const { error } = await _supabase.from('jogadores')
+                    .update({ resposta: palpites })
+                    .eq('id', meuId);
+
+                if (error) throw error;
+
                 document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
             } catch(err) {
-                console.error("Falha ao injetar dados no Supabase:", err);
-                alert("Erro técnico de rede ao computar resposta. Tente reenviar.");
+                console.error(err);
+                alert("Erro ao enviar resposta.");
                 bloquearBotoes(false);
-                document.getElementById('statusPlayer').innerText = "Erro ao enviar.";
             }
         }
     </script>
