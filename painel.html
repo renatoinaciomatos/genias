@@ -3,23 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <title>Notebook - Painel Genius Multiplayer</title>
-    <!-- CORREÇÃO: Biblioteca oficial e completa do Supabase v2 -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
-        body { background: #111; color: white; font-family: sans-serif; text-align: center; }
-        .painel { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 300px; margin: 20px auto; }
-        .botao { width: 140px; height: 140px; border-radius: 15px; opacity: 0.4; transition: 0.1s; cursor: pointer; }
+        body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
+        
+        /* Layout Principal Lado a Lado */
+        .conteudo-principal { display: flex; justify-content: center; align-items: flex-start; gap: 50px; max-width: 800px; margin: 20px auto; }
+        
+        /* Lado Esquerdo: Jogo e Controles */
+        .lado-esquerdo { flex: 1; display: flex; flex-direction: column; align-items: center; }
+        .painel { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 300px; margin-top: 10px; }
+        .botao { width: 140px; height: 140px; border-radius: 15px; opacity: 0.4; transition: 0.1s; }
         .ativo { opacity: 1 !important; box-shadow: 0 0 30px currentColor; }
         #verde { background: #00ff00; color: #00ff00; }
         #vermelho { background: #ff0000; color: #ff0000; }
         #amarelo { background: #ffff00; color: #ffff00; }
         #azul { background: #0000ff; color: #0000ff; }
-        .grid-rostos { display: flex; justify-content: center; gap: 30px; margin-top: 40px; flex-wrap: wrap; }
-        .avatar-container { position: relative; width: 100px; text-align: center; }
-        .avatar { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 4px solid #00ff00; }
+        
+        /* Lado Direito: Coluna de Jogadores */
+        .coluna-direita { width: 200px; background: #222; padding: 15px; border-radius: 15px; border: 1px solid #333; max-height: 500px; overflow-y: auto; }
+        .coluna-direita h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 8px; }
+        .grid-rostos { display: flex; flex-direction: column; gap: 15px; align-items: center; }
+        
+        .avatar-container { position: relative; width: 80px; text-align: center; }
+        .avatar { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 4px solid #00ff00; }
+        .avatar-container p { margin: 5px 0 0 0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        
         .eliminado img { border-color: #ff0000; filter: grayscale(1); }
-        .eliminado::after { content: "❌"; position: absolute; top: 30px; left: 35px; font-size: 40px; }
-        .controles { margin: 20px; }
+        .eliminado::after { content: "❌"; position: absolute; top: 15px; left: 25px; font-size: 30px; }
+        
+        .controles { margin: 10px; }
         .btn-ctrl { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; font-weight: bold; }
         #btnIniciar { background: #00ff00; color: black; }
         #btnPausar { background: #ffff00; color: black; }
@@ -28,25 +41,33 @@
 </head>
 <body>
     <h1>Genius Família - Painel Principal</h1>
-    <h2 id="status">Conectando ao banco...</h2>
+    <h2 id="status">Aguardando jogadores...</h2>
     
-    <div class="controles">
-        <button id="btnIniciar" class="btn-ctrl" onclick="iniciarJogo()">Iniciar</button>
-        <button id="btnPausar" class="btn-ctrl" onclick="pausarJogo()">Pausar</button>
-        <button id="btnReiniciar" class="btn-ctrl" onclick="reiniciarJogo()">Reiniciar</button>
-    </div>
+    <div class="conteudo-principal">
+        <!-- ÁREA DOS PADS COLORIDOS (ESQUERDA) -->
+        <div class="lado-esquerdo">
+            <div class="controles">
+                <button id="btnIniciar" class="btn-ctrl" onclick="iniciarJogo()">Iniciar</button>
+                <button id="btnPausar" class="btn-ctrl" onclick="pausarJogo()">Pausar</button>
+                <button id="btnReiniciar" class="btn-ctrl" onclick="reiniciarJogo()">Reiniciar</button>
+            </div>
 
-    <div class="painel">
-        <div id="verde" class="botao"></div>
-        <div id="vermelho" class="botao"></div>
-        <div id="amarelo" class="botao"></div>
-        <div id="azul" class="botao"></div>
-    </div>
+            <div class="painel">
+                <div id="verde" class="botao"></div>
+                <div id="vermelho" class="botao"></div>
+                <div id="amarelo" class="botao"></div>
+                <div id="azul" class="botao"></div>
+            </div>
+        </div>
 
-    <div class="grid-rostos" id="listaJogadores"></div>
+        <!-- COLUNA DOS JOGADORES (DIREITA) -->
+        <div class="coluna-direita">
+            <h3>Jogadores</h3>
+            <div class="grid-rostos" id="listaJogadores"></div>
+        </div>
+    </div>
 
     <script>
-        // CORREÇÃO: URL base sem o sufixo rest/v1/ e utilizando suas chaves atualizadas
         const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co";
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j";
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -55,7 +76,6 @@
         let jogadoresAtivos = [];
         let jogoPausado = false;
 
-        // Sons integrados do navegador para o painel principal
         const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
         function tocarSom(cor) {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -74,11 +94,10 @@
             try {
                 await _supabase.from('jogadores').delete().neq('id', 0);
                 await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [] });
-                document.getElementById('status').innerText = "Aguardando jogadores...";
             } catch(e) { console.log(e); }
         }
+        limparBanco();
 
-        // Configura canais Realtime
         _supabase.channel('custom-all-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
             atualizarLobby();
@@ -93,9 +112,6 @@
             if(!data) return;
             jogadoresAtivos = data;
             
-            const vivos = data.filter(j => j.vivo);
-            document.getElementById('status').innerText = `Jogadores na sala: (${data.length}) - Vivos: (${vivos.length})`;
-            
             const container = document.getElementById('listaJogadores');
             container.innerHTML = '';
 
@@ -106,14 +122,20 @@
                 container.appendChild(div);
             });
 
-            if (vivos.length === 1 && sequencia.length > 0) {
-                document.getElementById('status').innerText = `🏆 ${vivos[0].nome} Venceu o Jogo!`;
+            const vivos = data.filter(j => j.vivo);
+            if (vivos.length === 0 && sequencia.length > 0) {
+                document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
                 await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
+            } else if (sequencia.length > 0) {
+                document.getElementById('status').innerText = `Repitam a sequência! (${vivos.length} vivos)`;
+            } else {
+                document.getElementById('status').innerText = `Aguardando jogadores... (${data.length} na sala)`;
             }
         }
 
         function piscarBotao(cor) {
             const btn = document.getElementById(cor);
+            if(!btn) return;
             btn.classList.add('ativo');
             tocarSom(cor);
             setTimeout(() => btn.classList.remove('ativo'), 400);
@@ -124,10 +146,8 @@
             jogoPausado = false;
             document.getElementById('btnPausar').innerText = "Pausar";
             sequencia = [];
-            
-            // Força todos a ficarem vivos ao iniciar uma nova partida completa
             await _supabase.from('jogadores').update({ vivo: true }).neq('id', 0);
-            setTimeout(proximaRodada, 1000);
+            setTimeout(proximaRodada, 800);
         }
 
         async function pausarJogo() {
@@ -140,27 +160,18 @@
 
         async function reiniciarJogo() {
             if(confirm("Deseja zerar a partida e remover todos os jogadores?")) {
-                sequencia = [];
                 await limparBanco();
-                await atualizarLobby();
+                sequencia = [];
+                atualizarLobby();
             }
         }
 
         async function proximaRodada() {
             if(jogoPausado) return;
-            
-            const { data: todos } = await _supabase.from('jogadores').select('*');
-            const vivos = todos.filter(j => j.vivo);
-            
-            if(vivos.length === 0) {
-                document.getElementById('status').innerText = "Ninguém restou! Reinicie a partida.";
-                return;
-            }
-
             const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
             sequencia.push(cores[Math.floor(Math.random() * 4)]);
 
-            document.getElementById('status').innerText = "Preste Atenção na Sequência...";
+            document.getElementById('status').innerText = "Atenção à sequência...";
             await new Promise(r => setTimeout(r, 1000));
 
             for (let cor of sequencia) {
@@ -168,13 +179,13 @@
                 await new Promise(r => setTimeout(r, 700));
             }
 
+            const vivos = jogadoresAtivos.filter(j => j.vivo);
             await _supabase.from('partida').update({ 
                 sequencia_atual: sequencia, 
                 verificar_resposta: false,
                 status_jogo: "rodando",
                 jogadores_vivos: vivos.map(v => v.id)
             }).eq('id', 1);
-            
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
         }
 
@@ -184,27 +195,25 @@
 
             const acertou = JSON.stringify(partida.resposta_jogador) === JSON.stringify(sequencia);
 
+            // Reseta a flag de verificação imediatamente para evitar loops no banco
+            await _supabase.from('partida').update({ verificar_resposta: false }).eq('id', 1);
+
             if (!acertou) {
                 await _supabase.from('jogadores').update({ vivo: false }).eq('id', jogador.id);
-                alert(`💥 ${jogador.nome} errou e foi ELIMINADO!`);
+                alert(`${jogador.nome} errou e foi ELIMINADO!`);
             } else {
-                alert(`✅ ${jogador.nome} acertou a sequência!`);
+                alert(`✅ ${jogador.nome} acertou!`);
             }
 
             const { data: todos } = await _supabase.from('jogadores').select('*');
             const vivosRestantes = todos.filter(j => j.vivo);
 
-            if (vivosRestantes.length <= 1) {
-                await atualizarLobby();
+            if (vivosRestantes.length === 0) {
+                atualizarLobby();
             } else {
-                // Se ainda há mais pessoas para jogar na rodada atual antes de avançar, você gerencia aqui ou passa a vez
-                // Para simplificar o fluxo de turnos diretos:
-                proximaRodada();
+                setTimeout(proximaRodada, 1500);
             }
         }
-
-        // Executa uma limpeza inicial suave
-        limparBanco();
     </script>
 </body>
 </html>
