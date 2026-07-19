@@ -74,7 +74,38 @@
         let jogadoresAtivos = [];
         let jogoPausado = false;
         let checandoRespostas = false;
-        let piscandoCores = false; // Nova trava para evitar duplo acionamento das luzes
+        let piscandoCores = false;
+
+        // Frequências clássicas do Genius
+        const sonsGenius = {
+            verde: 415,    // Sol#
+            vermelho: 310, // Re#
+            amarelo: 252,  // Si
+            azul: 209      // Sol# grave
+        };
+
+        function tocarSom(cor) {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                const ctx = new AudioContext();
+                const oscillator = ctx.createOscillator();
+                const gainNode = ctx.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.value = sonsGenius[cor] || 440;
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(ctx.destination);
+                
+                gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.4);
+                
+                oscillator.start(ctx.currentTime);
+                oscillator.stop(ctx.currentTime + 0.4);
+            } catch (e) {
+                console.log("Áudio bloqueado ou não suportado:", e);
+            }
+        }
 
         async function limparBanco() {
             try {
@@ -85,7 +116,6 @@
         setInterval(buscarAtualizacoes, 800);
 
         async function buscarAtualizacoes() {
-            // TRAVA DE OURO: Se estiver tratando respostas ou piscando o Genius, o loop não avança.
             if (jogoPausado || checandoRespostas || piscandoCores) return;
             try {
                 const { data } = await _supabase.from('jogadores').select('*');
@@ -167,7 +197,7 @@
             setTimeout(async () => {
                 const { data: atualizados } = await _supabase.from('jogadores').select('*');
                 jogadoresAtivos = atualizados || [];
-                checandoRespostas = false; // Libera avaliação para o próximo turno
+                checandoRespostas = false;
                 proximaRodada();
             }, 3000);
         }
@@ -175,8 +205,11 @@
         function piscarBotao(cor) {
             const btn = document.getElementById(cor);
             if(!btn) return;
+            
+            tocarSom(cor);
+            
             btn.classList.add('ativo');
-            setTimeout(() => btn.classList.remove('ativo'), 400); // 400ms aceso
+            setTimeout(() => btn.classList.remove('ativo'), 400);
         }
 
         async function iniciarJogo() {
@@ -213,9 +246,8 @@
                 return;
             }
 
-            piscandoCores = true; // Ativa bloqueio de segurança
+            piscandoCores = true;
 
-            // Adiciona RIGOROSAMENTE apenas uma cor por turno à sequência já existente
             const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
             sequencia.push(cores[Math.floor(Math.random() * 4)]);
 
@@ -225,17 +257,15 @@
             
             await new Promise(r => setTimeout(r, 1000));
 
-            // Executa a sequência uma cor por vez, no ritmo clássico cadenciado
             for (let cor of sequencia) {
                 piscarBotao(cor);
-                await new Promise(r => setTimeout(r, 750)); // Tempo entre acender uma cor e outra
+                await new Promise(r => setTimeout(r, 750));
             }
 
-            // Libera os celulares
             await _supabase.from('jogadores').update({ resposta: null }).eq('vivo', true);
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
             
-            piscandoCores = false; // Desativa bloqueio de segurança
+            piscandoCores = false;
         }
     </script>
 </body>
