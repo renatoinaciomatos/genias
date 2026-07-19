@@ -40,7 +40,7 @@
     </style>
 </head>
 <body>
-    <h1>Gênias Heiki</h1>
+    <h1>Gênias Heiki - Painel Principal</h1>
     <h2 id="status">Aguardando jogadores...</h2>
     
     <div class="conteudo-principal">
@@ -73,7 +73,7 @@
         let sequencia = [];
         let jogadoresAtivos = [];
         let jogoPausado = false;
-        let checandoRespostas = false; // Trava para evitar dupla checagem simultânea
+        let checandoRespostas = false;
 
         async function limparBanco() {
             try {
@@ -130,7 +130,6 @@
             const vivos = jogadoresAtivos.filter(j => j.vivo);
             if (vivos.length === 0) return;
 
-            // Se TODOS os jogadores vivos tiverem uma resposta preenchida, corrige automaticamente
             const todosResponderam = vivos.every(j => j.resposta && j.resposta.length > 0);
             if (todosResponderam) {
                 corrigirRodadaAutomatica(vivos);
@@ -142,7 +141,6 @@
             document.getElementById('status').innerText = "Visualizando respostas...";
 
             let nomesAcertaram = [];
-            let nomesErraram = [];
 
             for (let jog of vivos) {
                 const resp = Array.isArray(jog.resposta) ? jog.resposta : JSON.parse(jog.resposta || "[]");
@@ -150,21 +148,18 @@
 
                 if (!acertou) {
                     await _supabase.from('jogadores').update({ vivo: false, resposta: null }).eq('id', jog.id);
-                    nomesErraram.push(jog.nome);
                 } else {
                     await _supabase.from('jogadores').update({ resposta: null }).eq('id', jog.id);
                     nomesAcertaram.push(jog.nome);
                 }
             }
 
-            // Exibe mensagem parabenizando os acertos e anunciando o próximo turno
             if (nomesAcertaram.length > 0) {
                 document.getElementById('status').innerText = `🎉 Parabéns ${nomesAcertaram.join(', ')}! Preparando próximo turno...`;
             } else {
                 document.getElementById('status').innerText = "Ninguém acertou! Fim da rodada.";
             }
 
-            // Aguarda 3 segundos para que as pessoas vejam a mensagem na tela antes de rodar a sequência nova
             setTimeout(async () => {
                 const { data: atualizados } = await _supabase.from('jogadores').select('*');
                 jogadoresAtivos = atualizados || [];
@@ -219,7 +214,6 @@
 
             document.getElementById('status').innerText = "Atenção à sequência...";
             
-            // Avisa os celulares que uma nova rodada vai começar limpando as respostas antigas do banco
             await _supabase.from('jogadores').update({ resposta: null }).eq('vivo', true);
             await _supabase.from('partida').update({ sequencia_atual: sequencia, status_jogo: "piscando" }).eq('id', 1);
             
@@ -230,7 +224,6 @@
                 await new Promise(r => setTimeout(r, 700));
             }
 
-            // Libera a digitação nos celulares mudando o estado para rodando
             await _supabase.from('partida').update({ status_jogo: "rodando" }).eq('id', 1);
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
         }
