@@ -58,8 +58,8 @@
     </div>
 
     <script>
-        // ID gerado como string pura e limpa
-        let meuId = "id_" + Math.random().toString(36).substr(2, 9);
+        // CORREÇÃO: ID numérico puro gerado dinamicamente para não estourar a coluna int8 do Postgres
+        let meuId = String(Math.floor(Math.random() * 1000000000));
         let minhaFotoBase64 = "";
         let palpites = [];
         const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co"; 
@@ -90,11 +90,10 @@
             const nome = document.getElementById('nomeJogador').value;
             if(!nome || !minhaFotoBase64) return alert("Nome e foto obrigatórios!");
 
-            // Insere na tabela de jogadores com a coluna 'resposta' nula inicialmente
             const { error } = await _supabase.from('jogadores').insert([
                 { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true, resposta: null }
             ]);
-            if (error) return alert("Erro: " + error.message);
+            if (error) return alert("Erro ao entrar: " + error.message);
 
             document.getElementById('telaRegistro').style.display = 'none';
             document.getElementById('telaJogo').style.display = 'block';
@@ -102,7 +101,6 @@
         }
 
         function ouvirStatusPartida() {
-            // Monitora alterações gerais na partida para liberar/bloquear digitação
             _supabase.channel('partida-global')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'partida' }, payload => {
                 const d = payload.new;
@@ -116,7 +114,6 @@
                 }
             }).subscribe();
 
-            // Monitora se EU fui eliminado
             _supabase.channel('status-individual')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
                 if(payload.new && !payload.new.vivo) {
@@ -157,14 +154,12 @@
             }
         }
 
-        // ENVIANDO DIRETO PARA A SUA LINHA DE JOGADOR
         async function enviarResposta() {
             if(palpites.length === 0) return alert("Crie uma sequência!");
             bloquearBotoes(true);
             document.getElementById('statusPlayer').innerText = "Enviando...";
 
             try {
-                // Atualiza o campo 'resposta' na linha do próprio jogador
                 const { error } = await _supabase.from('jogadores')
                     .update({ resposta: palpites })
                     .eq('id', meuId);
