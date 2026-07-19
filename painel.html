@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Notebook - Painel Genius Multiplayer</title>
+    <title>Gênias Heiki</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -93,19 +93,28 @@
         async function limparBanco() {
             try {
                 await _supabase.from('jogadores').delete().neq('id', 0);
-                await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [] });
+                await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [], verificar_resposta: false });
             } catch(e) { console.log(e); }
         }
         limparBanco();
 
+        // Escuta em tempo real do banco de dados
         _supabase.channel('custom-all-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
             atualizarLobby();
         })
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, payload => {
-            if(payload.new.verificar_resposta && !jogoPausado) checarRespostaDoJogador(payload.new);
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, () => {
+            verificarBancoManual();
         })
         .subscribe();
+
+        async function verificarBancoManual() {
+            if (jogoPausado) return;
+            const { data: partida } = await _supabase.from('partida').select('*').eq('id', 1).single();
+            if (partida && partida.verificar_resposta) {
+                checarRespostaDoJogador(partida);
+            }
+        }
 
         async function atualizarLobby() {
             const { data } = await _supabase.from('jogadores').select('*');
@@ -195,23 +204,26 @@
 
             const acertou = JSON.stringify(partida.resposta_jogador) === JSON.stringify(sequencia);
 
-            // Reseta a flag de verificação imediatamente para evitar loops no banco
-            await _supabase.from('partida').update({ verificar_resposta: false }).eq('id', 1);
-
             if (!acertou) {
                 await _supabase.from('jogadores').update({ vivo: false }).eq('id', jogador.id);
-                alert(`${jogador.nome} errou e foi ELIMINADO!`);
+                document.getElementById('status').innerText = `💥 ${jogador.nome} errou e foi ELIMINADO!`;
             } else {
-                alert(`✅ ${jogador.nome} acertou!`);
+                document.getElementById('status').innerText = `✅ ${jogador.nome} acertou a sequência!`;
             }
 
+            // CORREÇÃO CRÍTICA: Reseta a flag e redefine os jogadores vivos para desbloquear instantaneamente a tela do celular
             const { data: todos } = await _supabase.from('jogadores').select('*');
             const vivosRestantes = todos.filter(j => j.vivo);
 
+            await _supabase.from('partida').update({ 
+                verificar_resposta: false,
+                jogadores_vivos: vivosRestantes.map(v => v.id)
+            }).eq('id', 1);
+
             if (vivosRestantes.length === 0) {
-                atualizarLobby();
+                setTimeout(atualizarLobby, 1500);
             } else {
-                setTimeout(proximaRodada, 1500);
+                setTimeout(proximaRodada, 2000);
             }
         }
     </script>
