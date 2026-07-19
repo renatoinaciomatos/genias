@@ -4,19 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jogador - Controle Genius</title>
-    <!-- CORREÇÃO: Biblioteca oficial e estável do Supabase v2 -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #222; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
-        .pad-botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 90vw; max-width: 320px; margin: 30px auto; }
-        .btn-game { height: 130px; border-radius: 20px; border: none; font-size: 20px; font-weight: bold; cursor: pointer; opacity: 0.4; transition: 0.1s; }
-        .btn-game:active, .ativo { opacity: 1 !important; transform: scale(0.98); box-shadow: 0 0 25px currentColor; }
-        #v-verde { background: #00ff00; color: #00ff00; } 
-        #v-vermelho { background: #ff0000; color: #ff0000; }
-        #v-amarelo { background: #ffff00; color: #ffff00; } 
-        #v-azul { background: #0000ff; color: #0000ff; }
+        .pad-botoes { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 90vw; max-width: 320px; margin: 20px auto; }
+        .btn-game { height: 120px; border-radius: 20px; border: none; font-size: 20px; font-weight: bold; cursor: pointer; opacity: 0.3; transition: 0.1s; }
+        .btn-game:active, .ativo { opacity: 1 !important; transform: scale(0.96); box-shadow: 0 0 25px currentColor; }
+        #v-verde { background: #00ff00; color: #00ff00; } #v-vermelho { background: #ff0000; color: #ff0000; }
+        #v-amarelo { background: #ffff00; color: #ffff00; } #v-azul { background: #0000ff; color: #0000ff; }
+        
+        /* Controles de memória locais (Play e Reset) */
+        .memoria-controles { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; width: 90vw; max-width: 320px; margin: 10px auto; }
+        .btn-action { padding: 12px; font-size: 16px; font-weight: bold; border-radius: 8px; border: none; cursor: pointer; }
+        .btn-play { background: #00ffca; color: black; }
+        .btn-reset { background: #ffaa00; color: black; }
+        .btn-enviar { background: white; color: black; padding: 14px; font-size: 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; width: 90vw; max-width: 320px; margin-top: 15px; }
+        
         #telaJogo { display: none; }
-        video, canvas { width: 100%; max-width: 200px; display: block; margin: 10px auto; border-radius: 10px; }
+        video, canvas { width: 100%; max-width: 180px; display: block; margin: 10px auto; border-radius: 10px; }
         .input-text { padding: 10px; font-size: 16px; width: 80%; max-width: 260px; border-radius: 5px; border: 1px solid #555; background: #333; color: white; text-align: center; }
     </style>
 </head>
@@ -40,13 +45,21 @@
 
     <div id="telaJogo">
         <h2 id="statusPlayer">Aguardando início...</h2>
+        
         <div class="pad-botoes">
             <button id="v-verde" class="btn-game" onclick="pressionar('verde')"></button>
             <button id="v-vermelho" class="btn-game" onclick="pressionar('vermelho')"></button>
             <button id="v-amarelo" class="btn-game" onclick="pressionar('amarelo')"></button>
             <button id="v-azul" class="btn-game" onclick="pressionar('azul')"></button>
         </div>
-        <button id="btnEnviar" onclick="enviarResposta()" style="background: white; color: black; padding: 12px 30px; font-size: 18px; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; width: 90vw; max-width: 320px;">Enviar Sequência</button>
+
+        <!-- REQUISITO 2: Play e Reset locais -->
+        <div class="memoria-controles">
+            <button class="btn-action btn-play" id="btnPlay" onclick="reproduzirPadraoLocal()">▶️ Play (Ouvir)</button>
+            <button class="btn-action btn-reset" id="btnReset" onclick="limparPadraoLocal()">❌ Reset (Limpar)</button>
+        </div>
+
+        <button id="btnEnviar" class="btn-enviar" onclick="enviarResposta()">Enviar Sequência</button>
     </div>
 
     <script>
@@ -55,11 +68,9 @@
         let palpites = [];
         let _supabase = null;
 
-        // CORREÇÃO: URL base correta sem subpastas adicionais
         const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co"; 
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; 
 
-        // Efeitos sonoros para interação do celular
         const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
         function tocarSom(cor) {
             const ctx = new (window.AudioContext || window.webkitAudioContext)();
@@ -76,16 +87,13 @@
 
         try {
             _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-        } catch (e) {
-            console.error("Falha ao instanciar o Supabase Client:", e);
-        }
+        } catch (e) { console.error(e); }
 
-        // LÓGICA DA CÂMERA
         const video = document.getElementById('video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
                 .then(stream => video.srcObject = stream)
-                .catch(() => console.log("Câmera indisponível ou permissão negada."));
+                .catch(() => console.log("Câmera indisponível."));
         }
 
         function tirarFoto() {
@@ -99,34 +107,25 @@
         function carregarDaGaleria(event) {
             const reader = new FileReader();
             reader.onload = function() { minhaFotoBase64 = reader.result; };
-            if(event.target.files[0]) {
-                reader.readAsDataURL(event.target.files[0]);
-            }
+            if(event.target.files[0]) reader.readAsDataURL(event.target.files[0]);
         }
 
         async function entrarNaPartida() {
-            if (!_supabase) return alert("Erro ao conectar ao banco.");
+            if (!_supabase) return alert("Erro de conexão.");
             const nome = document.getElementById('nomeJogador').value;
-            if(!nome) return alert("Insira seu nome!");
-            if(!minhaFotoBase64) return alert("Escolha ou tire uma foto primeiro!");
+            if(!nome || !minhaFotoBase64) return alert("Preencha o nome e tire a foto!");
 
-            try {
-                const { error } = await _supabase.from('jogadores').insert([
-                    { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true }
-                ]);
-                if (error) return alert("Erro no banco: " + error.message);
+            const { error } = await _supabase.from('jogadores').insert([
+                { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true }
+            ]);
+            if (error) return alert("Erro: " + error.message);
 
-                document.getElementById('telaRegistro').style.display = 'none';
-                document.getElementById('telaJogo').style.display = 'block';
-                ouvirPartida();
-            } catch (err) {
-                alert("Erro interno: " + err.message);
-            }
+            document.getElementById('telaRegistro').style.display = 'none';
+            document.getElementById('telaJogo').style.display = 'block';
+            ouvirPartida();
         }
 
         function ouvirPartida() {
-            if (!_supabase) return;
-
             _supabase.channel('partida-channel')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'partida' }, payload => {
                 const dados = payload.new;
@@ -137,22 +136,20 @@
                     bloquearBotoes(true);
                     return;
                 }
-                if(dados.status_jogo === "fim") {
-                    document.getElementById('statusPlayer').innerText = "🏁 Partida encerrada!";
+                if(dados.status_jogo === "fim" || dados.status_jogo === "lobby") {
+                    document.getElementById('statusPlayer').innerText = "🏁 Aguardando início...";
                     bloquearBotoes(true);
                     return;
                 }
 
                 if (dados.jogadores_vivos && dados.jogadores_vivos.includes(meuId)) {
-                    document.getElementById('statusPlayer').innerText = "Sua vez! Repita a sequência:";
+                    document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
                     bloquearBotoes(false);
-                    palpites = [];
                 } else {
-                    document.getElementById('statusPlayer').innerText = "Preste atenção no painel principal...";
+                    document.getElementById('statusPlayer').innerText = "Preste atenção no painel...";
                     bloquearBotoes(true);
                 }
-            })
-            .subscribe();
+            }).subscribe();
 
             _supabase.channel('meu-status')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
@@ -165,21 +162,52 @@
         }
 
         function bloquearBotoes(status) {
-            document.querySelectorAll('.btn-game').forEach(b => b.disabled = status);
+            document.querySelectorAll('.btn-game, .btn-action').forEach(b => b.disabled = status);
         }
 
         function pressionar(cor) {
             palpites.push(cor);
             tocarSom(cor);
-            
-            // Feedback visual rápido ao tocar
+            piscarLocal(cor);
+            atualizarContadorEnvio();
+        }
+
+        function piscarLocal(cor) {
             const btn = document.getElementById(`v-${cor}`);
-            btn.classList.add('ativo');
-            setTimeout(() => btn.classList.remove('ativo'), 200);
+            if(btn) {
+                btn.classList.add('ativo');
+                setTimeout(() => btn.classList.remove('ativo'), 200);
+            }
+        }
+
+        function atualizarContadorEnvio() {
+            const btn = document.getElementById('btnEnviar');
+            btn.innerText = palpites.length > 0 ? `Enviar Sequência (${palpites.length})` : "Enviar Sequência";
+        }
+
+        // FUNÇÃO REQUISITO 2: Executa e mostra para o usuário o padrão que ele gravou localmente
+        async function reproduzirPadraoLocal() {
+            if(palpites.length === 0) return alert("Nenhum botão pressionado ainda!");
+            bloquearBotoes(true);
+            
+            for(let cor of palpites) {
+                piscarLocal(cor);
+                tocarSom(cor);
+                await new Promise(r => setTimeout(r, 400));
+            }
+            bloquearBotoes(false);
+        }
+
+        // FUNÇÃO REQUISITO 2: Limpa a memória temporária do jogador
+        function limparPadraoLocal() {
+            palpites = [];
+            atualizarContadorEnvio();
+            alert("Sua sequência digitada foi apagada. Pode recomeçar!");
         }
 
         async function enviarResposta() {
-            if (!_supabase) return;
+            if(palpites.length === 0) return alert("Pressione os botões coloridos antes de enviar!");
+            bloquearBotoes(true);
             document.getElementById('statusPlayer').innerText = "Enviando...";
             
             await _supabase.from('partida').update({
