@@ -25,11 +25,9 @@
         .avatar-container p { margin: 5px 0 2px 0; font-size: 14px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .status-player { font-size: 11px; margin: 0; color: #aaa; }
         
-        /* Enviou a resposta */
         .submetido img { border-color: #00ffca !important; box-shadow: 0 0 15px #00ffca; }
         .submetido .status-player { color: #00ffca; font-weight: bold; }
         
-        /* Eliminado */
         .eliminado img { border-color: #ff0000 !important; filter: grayscale(1); }
         .eliminado::after { content: "❌"; position: absolute; top: 15px; left: 35px; font-size: 30px; z-index: 10; }
         .eliminado .status-player { color: #ff0000; }
@@ -38,7 +36,6 @@
         .btn-ctrl { padding: 10px 15px; font-size: 15px; cursor: pointer; border-radius: 5px; border: none; font-weight: bold; }
         #btnIniciar { background: #00ff00; color: black; }
         #btnPausar { background: #ffff00; color: black; }
-        #btnCorrigir { background: #00ffca; color: black; display: none; box-shadow: 0 0 15px #00ffca; }
         #btnReiniciar { background: #ff0000; color: white; }
     </style>
 </head>
@@ -51,7 +48,6 @@
             <div class="controles">
                 <button id="btnIniciar" class="btn-ctrl" onclick="iniciarJogo()">Iniciar</button>
                 <button id="btnPausar" class="btn-ctrl" onclick="pausarJogo()">Pausar</button>
-                <button id="btnCorrigir" class="btn-ctrl" onclick="corrigirRodada()">👉 Corrigir Respostas</button>
                 <button id="btnReiniciar" class="btn-ctrl" onclick="reiniciarJogo()">Reiniciar</button>
             </div>
 
@@ -77,6 +73,7 @@
         let sequencia = [];
         let jogadoresAtivos = [];
         let jogoPausado = false;
+        let checandoRespostas = false; // Trava para evitar dupla checagem simultânea
 
         async function limparBanco() {
             try {
@@ -84,18 +81,17 @@
                 await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [] });
             } catch(e) { console.log(e); }
         }
-        // Só limpe se você realmente clicar em reiniciar para evitar wipes acidentais ao recarregar a aba
         
-        // Polling constante a cada 800ms para monitorar os jogadores e o que eles enviam
         setInterval(buscarAtualizacoes, 800);
 
         async function buscarAtualizacoes() {
-            if (jogoPausado) return;
+            if (jogoPausado || checandoRespostas) return;
             try {
                 const { data } = await _supabase.from('jogadores').select('*');
                 if (data) {
                     jogadoresAtivos = data;
                     renderizarInterface();
+                    verificarFimDoTurno();
                 }
             } catch(err) { console.error(err); }
         }
@@ -103,16 +99,10 @@
         function renderizarInterface() {
             const container = document.getElementById('listaJogadores');
             container.innerHTML = '';
-
             const vivos = jogadoresAtivos.filter(j => j.vivo);
-            // Verifica se algum jogador vivo já enviou resposta nesta rodada
-            const alguemEnviou = vivos.some(j => j.resposta && j.resposta.length > 0);
-            
-            document.getElementById('btnCorrigir').style.display = (alguemEnviou && sequencia.length > 0) ? 'inline-block' : 'none';
 
             jogadoresAtivos.forEach(jog => {
                 const div = document.createElement('div');
-                
                 if (!jog.vivo) {
                     div.className = "avatar-container eliminado";
                     div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Eliminado</span>`;
@@ -129,10 +119,58 @@
             if (vivos.length === 0 && sequencia.length > 0) {
                 document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
             } else if (sequencia.length > 0) {
-                document.getElementById('status').innerText = alguemEnviou ? "Respostas recebidas! Clique em Corrigir." : `Repitam a sequência! (${vivos.length} vivos)`;
+                document.getElementById('status').innerText = `Repitam a sequência! (${vivos.length} vivos)`;
             } else {
                 document.getElementById('status').innerText = `Aguardando jogadores... (${jogadoresAtivos.length} na sala)`;
             }
+        }
+
+        function verificarFimDoTurno() {
+            if (sequencia.length === 0) return;
+            const vivos = jogadoresAtivos.filter(j => j.vivo);
+            if (vivos.length === 0) return;
+
+            // Se TODOS os jogadores vivos tiverem uma resposta preenchida, corrige automaticamente
+            const todosResponderam = vivos.every(j => j.resposta && j.resposta.length > 0);
+            if (todosResponderam) {
+                corrigirRodadaAutomatica(vivos);
+            }
+        }
+
+        async function corrigirRodadaAutomatica(vivos) {
+            checandoRespostas = true;
+            document.getElementById('status').innerText = "Visualizando respostas...";
+
+            let nomesAcertaram = [];
+            let nomesErraram = [];
+
+            for (let jog of vivos) {
+                const resp = Array.isArray(jog.resposta) ? jog.resposta : JSON.parse(jog.resposta || "[]");
+                const acertou = resp.length === sequencia.length && resp.every((v, i) => v === sequencia[i]);
+
+                if (!acertou) {
+                    await _supabase.from('jogadores').update({ vivo: false, resposta: null }).eq('id', jog.id);
+                    nomesErraram.push(jog.nome);
+                } else {
+                    await _supabase.from('jogadores').update({ resposta: null }).eq('id', jog.id);
+                    nomesAcertaram.push(jog.nome);
+                }
+            }
+
+            // Exibe mensagem parabenizando os acertos e anunciando o próximo turno
+            if (nomesAcertaram.length > 0) {
+                document.getElementById('status').innerText = `🎉 Parabéns ${nomesAcertaram.join(', ')}! Preparando próximo turno...`;
+            } else {
+                document.getElementById('status').innerText = "Ninguém acertou! Fim da rodada.";
+            }
+
+            // Aguarda 3 segundos para que as pessoas vejam a mensagem na tela antes de rodar a sequência nova
+            setTimeout(async () => {
+                const { data: atualizados } = await _supabase.from('jogadores').select('*');
+                jogadoresAtivos = atualizados || [];
+                checandoRespostas = false;
+                proximaRodada();
+            }, 3000);
         }
 
         function piscarBotao(cor) {
@@ -145,8 +183,8 @@
         async function iniciarJogo() {
             if(jogadoresAtivos.length === 0) return alert("Aguarde os jogadores entrarem!");
             jogoPausado = false;
+            checandoRespostas = false;
             sequencia = [];
-            // Reseta respostas antigas e revive jogadores
             await _supabase.from('jogadores').update({ vivo: true, resposta: null }).neq('id', '0');
             setTimeout(proximaRodada, 800);
         }
@@ -161,6 +199,7 @@
             if(confirm("Zerar partida?")) {
                 await limparBanco();
                 sequencia = [];
+                checandoRespostas = false;
                 renderizarInterface();
             }
         }
@@ -168,45 +207,32 @@
         async function proximaRodada() {
             if(jogoPausado) return;
             
+            const { data: vivos } = await _supabase.from('jogadores').select('*').eq('vivo', true);
+            if (!vivos || vivos.length === 0) {
+                document.getElementById('status').innerText = "💀 Fim de Jogo! Não restaram jogadores vivos.";
+                await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
+                return;
+            }
+
             const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
             sequencia.push(cores[Math.floor(Math.random() * 4)]);
 
             document.getElementById('status').innerText = "Atenção à sequência...";
-            await new Promise(r => setTimeout(r, 1000));
+            
+            // Avisa os celulares que uma nova rodada vai começar limpando as respostas antigas do banco
+            await _supabase.from('jogadores').update({ resposta: null }).eq('vivo', true);
+            await _supabase.from('partida').update({ sequencia_atual: sequencia, status_jogo: "piscando" }).eq('id', 1);
+            
+            await new Promise(r => setTimeout(r, 1200));
 
             for (let cor of sequencia) {
                 piscarBotao(cor);
                 await new Promise(r => setTimeout(r, 700));
             }
 
-            // Limpa o campo de resposta dos jogadores no banco para a nova rodada
-            await _supabase.from('jogadores').update({ resposta: null }).eq('vivo', true);
-            await _supabase.from('partida').update({ sequencia_atual: sequencia, status_jogo: "rodando" }).eq('id', 1);
-            
+            // Libera a digitação nos celulares mudando o estado para rodando
+            await _supabase.from('partida').update({ status_jogo: "rodando" }).eq('id', 1);
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
-        }
-
-        async function corrigirRodada() {
-            document.getElementById('btnCorrigir').style.display = 'none';
-            let houveEliminado = false;
-
-            for (let jog of jogadoresAtivos) {
-                if (!jog.vivo) continue;
-
-                // Garante que a resposta seja lida como Array
-                const resp = Array.isArray(jog.resposta) ? jog.resposta : JSON.parse(jog.resposta || "[]");
-                const acertou = resp.length === sequencia.length && resp.every((v, i) => v === sequencia[i]);
-
-                if (!acertou) {
-                    await _supabase.from('jogadores').update({ vivo: false, resposta: null }).eq('id', jog.id);
-                    houveEliminado = true;
-                } else {
-                    await _supabase.from('jogadores').update({ resposta: null }).eq('id', jog.id);
-                }
-            }
-
-            document.getElementById('status').innerText = "Resultados computados!";
-            setTimeout(proximaRodada, 2000);
         }
     </script>
 </body>
