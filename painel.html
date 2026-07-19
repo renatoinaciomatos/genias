@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Notebook - Painel Genius Multiplayer</title>
+    <title>Gênias Heiki</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -75,36 +75,38 @@
         let sequencia = [];
         let jogadoresAtivos = [];
         let jogoPausado = false;
-        let processandoValidacao = false; // Trava local para evitar execuções duplicadas simultâneas
+        let processandoValidacao = false;
 
         const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
         function tocarSom(cor) {
-            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-            const osc = ctx.createOscillator();
-            const gain = ctx.createGain();
-            osc.frequency.value = frequencias[cor];
-            osc.connect(gain);
-            gain.connect(ctx.destination);
-            osc.start();
-            gain.gain.setValueAtTime(0.3, ctx.currentTime);
-            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-            osc.stop(ctx.currentTime + 0.4);
+            try {
+                const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+                osc.frequency.value = frequencias[cor];
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+                osc.start();
+                gain.gain.setValueAtTime(0.3, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+                osc.stop(ctx.currentTime + 0.4);
+            } catch(e) { console.error(e); }
         }
 
         async function limparBanco() {
             try {
                 await _supabase.from('jogadores').delete().neq('id', 0);
                 await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [], verificar_resposta: false });
-            } catch(e) { console.log(e); }
+            } catch(e) { console.error(e); }
         }
         limparBanco();
 
+        // Canal em tempo real corrigido
         _supabase.channel('custom-all-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
             atualizarLobby();
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, payload => {
-            // Nova checagem: confia na mudança de estado capturada pelo realtime sem gerar novos loops de escrita
             if(payload.new && payload.new.verificar_resposta && !jogoPausado && !processandoValidacao) {
                 checarRespostaDoJogador(payload.new);
             }
@@ -112,29 +114,31 @@
         .subscribe();
 
         async function atualizarLobby() {
-            const { data } = await _supabase.from('jogadores').select('*');
-            if(!data) return;
-            jogadoresAtivos = data;
-            
-            const container = document.getElementById('listaJogadores');
-            container.innerHTML = '';
+            try {
+                const { data } = await _supabase.from('jogadores').select('*');
+                if(!data) return;
+                jogadoresAtivos = data;
+                
+                const container = document.getElementById('listaJogadores');
+                container.innerHTML = '';
 
-            data.forEach(jog => {
-                const div = document.createElement('div');
-                div.className = `avatar-container ${!jog.vivo ? 'eliminado' : ''}`;
-                div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p>`;
-                container.appendChild(div);
-            });
+                data.forEach(jog => {
+                    const div = document.createElement('div');
+                    div.className = `avatar-container ${!jog.vivo ? 'eliminado' : ''}`;
+                    div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p>`;
+                    container.appendChild(div);
+                });
 
-            const vivos = data.filter(j => j.vivo);
-            if (vivos.length === 0 && sequencia.length > 0) {
-                document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
-                await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
-            } else if (sequencia.length > 0) {
-                document.getElementById('status').innerText = `Repitam a sequência! (${vivos.length} vivos)`;
-            } else {
-                document.getElementById('status').innerText = `Aguardando jogadores... (${data.length} na sala)`;
-            }
+                const vivos = data.filter(j => j.vivo);
+                if (vivos.length === 0 && sequencia.length > 0) {
+                    document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
+                    await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
+                } else if (sequencia.length > 0) {
+                    document.getElementById('status').innerText = `Repitam a sequência! (${vivos.length} vivos)`;
+                } else {
+                    document.getElementById('status').innerText = `Aguardando jogadores... (${data.length} na sala)`;
+                }
+            } catch(e) { console.error(e); }
         }
 
         function piscarBotao(cor) {
@@ -174,6 +178,7 @@
         async function proximaRodada() {
             if(jogoPausado) return;
             processandoValidacao = false;
+            
             const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
             sequencia.push(cores[Math.floor(Math.random() * 4)]);
 
@@ -198,37 +203,49 @@
         async function checarRespostaDoJogador(partida) {
             processandoValidacao = true;
             
-            const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', partida.ultimo_jogador_id).single();
-            if(!jogador) {
-                processandoValidacao = false;
-                return;
-            }
-
-            const acertou = JSON.stringify(partida.resposta_jogador) === JSON.stringify(sequencia);
-
-            if (!acertou) {
-                await _supabase.from('jogadores').update({ vivo: false }).eq('id', jogador.id);
-                document.getElementById('status').innerText = `💥 ${jogador.nome} errou e foi ELIMINADO!`;
-            } else {
-                document.getElementById('status').innerText = `✅ ${jogador.nome} acertou a sequência!`;
-            }
-
-            // Atualiza o estado dos jogadores restantes e desliga o sinalizador num comando único e combinado
-            const { data: todos } = await _supabase.from('jogadores').select('*');
-            const vivosRestantes = todos.filter(j => j.vivo);
-
-            await _supabase.from('partida').update({ 
-                verificar_resposta: false,
-                jogadores_vivos: vivosRestantes.map(v => v.id)
-            }).eq('id', 1);
-
-            if (vivosRestantes.length === 0) {
-                setTimeout(() => {
-                    atualizarLobby();
+            try {
+                const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', partida.ultimo_jogador_id).single();
+                if(!jogador) {
                     processandoValidacao = false;
-                }, 1500);
-            } else {
-                setTimeout(proximaRodada, 2000);
+                    return;
+                }
+
+                // CORREÇÃO CRÍTICA: Força a conversão e limpeza dos arrays para garantir compatibilidade textual exata
+                const arrResposta = Array.isArray(partida.resposta_jogador) ? partida.resposta_jogador : JSON.parse(partida.resposta_jogador || "[]");
+                const arrSequencia = Array.isArray(sequencia) ? sequencia : [];
+                
+                const acertou = arrResposta.length === arrSequencia.length && arrResposta.every((val, i) => val === arrSequencia[i]);
+
+                if (!acertou) {
+                    await _supabase.from('jogadores').update({ vivo: false }).eq('id', jogador.id);
+                    document.getElementById('status').innerText = `💥 ${jogador.nome} errou e foi ELIMINADO!`;
+                } else {
+                    document.getElementById('status').innerText = `✅ ${jogador.nome} acertou a sequência!`;
+                }
+
+                // Desativa o gatilho e calcula sobreviventes numa única requisição estável
+                const { data: todos } = await _supabase.from('jogadores').select('*');
+                const vivosRestantes = todos ? todos.filter(j => j.vivo) : [];
+
+                await _supabase.from('partida').update({ 
+                    verificar_resposta: false,
+                    jogadores_vivos: vivosRestantes.map(v => v.id)
+                }).eq('id', 1);
+
+                if (vivosRestantes.length === 0) {
+                    setTimeout(() => {
+                        atualizarLobby();
+                        processandoValidacao = false;
+                    }, 1500);
+                } else {
+                    setTimeout(proximaRodada, 2000);
+                }
+
+            } catch (erroGeral) {
+                console.error("Erro interno na validação:", erroGeral);
+                // Destrava o fluxo em caso de qualquer exceção imprevista de rede
+                await _supabase.from('partida').update({ verificar_resposta: false }).eq('id', 1);
+                processandoValidacao = false;
             }
         }
     </script>
