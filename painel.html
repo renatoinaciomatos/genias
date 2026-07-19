@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Gênias Heiki</title>
+    <title>Notebook - Painel Genius Multiplayer</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -75,6 +75,7 @@
         let sequencia = [];
         let jogadoresAtivos = [];
         let jogoPausado = false;
+        let processandoValidacao = false; // Trava local para evitar execuções duplicadas simultâneas
 
         const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
         function tocarSom(cor) {
@@ -98,23 +99,17 @@
         }
         limparBanco();
 
-        // Escuta em tempo real do banco de dados
         _supabase.channel('custom-all-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
             atualizarLobby();
         })
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, () => {
-            verificarBancoManual();
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, payload => {
+            // Nova checagem: confia na mudança de estado capturada pelo realtime sem gerar novos loops de escrita
+            if(payload.new && payload.new.verificar_resposta && !jogoPausado && !processandoValidacao) {
+                checarRespostaDoJogador(payload.new);
+            }
         })
         .subscribe();
-
-        async function verificarBancoManual() {
-            if (jogoPausado) return;
-            const { data: partida } = await _supabase.from('partida').select('*').eq('id', 1).single();
-            if (partida && partida.verificar_resposta) {
-                checarRespostaDoJogador(partida);
-            }
-        }
 
         async function atualizarLobby() {
             const { data } = await _supabase.from('jogadores').select('*');
@@ -153,6 +148,7 @@
         async function iniciarJogo() {
             if(jogadoresAtivos.length === 0) return alert("Aguarde pelo menos 1 jogador entrar!");
             jogoPausado = false;
+            processandoValidacao = false;
             document.getElementById('btnPausar').innerText = "Pausar";
             sequencia = [];
             await _supabase.from('jogadores').update({ vivo: true }).neq('id', 0);
@@ -177,6 +173,7 @@
 
         async function proximaRodada() {
             if(jogoPausado) return;
+            processandoValidacao = false;
             const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
             sequencia.push(cores[Math.floor(Math.random() * 4)]);
 
@@ -199,8 +196,13 @@
         }
 
         async function checarRespostaDoJogador(partida) {
+            processandoValidacao = true;
+            
             const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', partida.ultimo_jogador_id).single();
-            if(!jogador) return;
+            if(!jogador) {
+                processandoValidacao = false;
+                return;
+            }
 
             const acertou = JSON.stringify(partida.resposta_jogador) === JSON.stringify(sequencia);
 
@@ -211,7 +213,7 @@
                 document.getElementById('status').innerText = `✅ ${jogador.nome} acertou a sequência!`;
             }
 
-            // CORREÇÃO CRÍTICA: Reseta a flag e redefine os jogadores vivos para desbloquear instantaneamente a tela do celular
+            // Atualiza o estado dos jogadores restantes e desliga o sinalizador num comando único e combinado
             const { data: todos } = await _supabase.from('jogadores').select('*');
             const vivosRestantes = todos.filter(j => j.vivo);
 
@@ -221,7 +223,10 @@
             }).eq('id', 1);
 
             if (vivosRestantes.length === 0) {
-                setTimeout(atualizarLobby, 1500);
+                setTimeout(() => {
+                    atualizarLobby();
+                    processandoValidacao = false;
+                }, 1500);
             } else {
                 setTimeout(proximaRodada, 2000);
             }
