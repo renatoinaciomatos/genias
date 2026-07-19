@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Jogador - Controle Genius</title>
+    <title>Gênias Heiki</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #222; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -58,10 +58,11 @@
     </div>
 
     <script>
-        // CORREÇÃO: ID numérico puro gerado dinamicamente para não estourar a coluna int8 do Postgres
         let meuId = String(Math.floor(Math.random() * 1000000000));
         let minhaFotoBase64 = "";
         let palpites = [];
+        let euEstouVivo = true;
+        
         const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co"; 
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; 
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
@@ -104,10 +105,16 @@
             _supabase.channel('partida-global')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'partida' }, payload => {
                 const d = payload.new;
-                if(!d) return;
+                if(!d || !euEstouVivo) return;
+                
                 if(d.status_jogo === "rodando") {
                      document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
                      bloquearBotoes(false);
+                } else if(d.status_jogo === "piscando") {
+                     // CORREÇÃO: Limpa os botões e os palpites locais automaticamente para preparar o próximo turno destravado!
+                     limparPadraoLocal();
+                     document.getElementById('statusPlayer').innerText = "Preste atenção no Painel...";
+                     bloquearBotoes(true);
                 } else {
                      document.getElementById('statusPlayer').innerText = "Aguardando próxima rodada...";
                      bloquearBotoes(true);
@@ -117,6 +124,7 @@
             _supabase.channel('status-individual')
             .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
                 if(payload.new && !payload.new.vivo) {
+                    euEstouVivo = false;
                     document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
                     bloquearBotoes(true);
                 }
@@ -128,6 +136,7 @@
         }
 
         function pressionar(cor) {
+            if(!euEstouVivo) return;
             palpites.push(cor);
             piscarLocal(cor);
             document.getElementById('btnEnviar').innerText = `Enviar Sequência (${palpites.length})`;
@@ -165,11 +174,10 @@
                     .eq('id', meuId);
 
                 if (error) throw error;
-
                 document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
             } catch(err) {
                 console.error(err);
-                alert("Erro ao enviar resposta.");
+                alert("Erro ao enviar.");
                 bloquearBotoes(false);
             }
         }
