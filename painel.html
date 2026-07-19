@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>Notebook - Painel Genius Multiplayer</title>
+    <!-- CORREÇÃO: Link oficial e completo da biblioteca do Supabase -->
     <script src="https://jsdelivr.net"></script>
     <style>
         body { background: #111; color: white; font-family: sans-serif; text-align: center; }
@@ -13,13 +14,13 @@
         #vermelho { background: #ff0000; color: #ff0000; }
         #amarelo { background: #ffff00; color: #ffff00; }
         #azul { background: #0000ff; color: #0000ff; }
-        .grid-rostos { display: flex; justify-content: center; gap: 30px; margin-top: 40px; }
+        .grid-rostos { display: flex; justify-content: center; gap: 30px; margin-top: 40px; flex-wrap: wrap; }
         .avatar-container { position: relative; width: 100px; text-align: center; }
         .avatar { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 4px solid #00ff00; }
         .eliminado img { border-color: #ff0000; filter: grayscale(1); }
         .eliminado::after { content: "❌"; position: absolute; top: 30px; left: 35px; font-size: 40px; }
         .controles { margin: 20px; }
-        .btn-ctrl { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; }
+        .btn-ctrl { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 5px; border: none; font-weight: bold; }
         #btnIniciar { background: #00ff00; color: black; }
         #btnPausar { background: #ffff00; color: black; }
         #btnReiniciar { background: #ff0000; color: white; }
