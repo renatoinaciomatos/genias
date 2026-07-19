@@ -44,7 +44,7 @@
     </div>
 
     <script>
-        const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co";
+        const SUPABASE_URL = "https://supabase.co";
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j";
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -74,24 +74,20 @@
         async function entrarNaPartida() {
             try {
                 const nome = document.getElementById('nomeJogador').value;
-                if(!nome || !minhaFotoBase64) return alert("Insira seu nome e foto!");
-
-                alert("Tentando conectar ao banco...");
+                if(!nome) return alert("Insira seu nome!");
+                if(!minhaFotoBase64) return alert("Escolha ou tire uma foto primeiro!");
 
                 const { error } = await _supabase.from('jogadores').insert([
                     { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true }
                 ]);
 
-                if (error) {
-                    alert("O Supabase recusou: " + error.message + " | Detalhes: " + error.details);
-                    return;
-                }
+                if (error) return alert("Erro no banco: " + error.message);
 
                 document.getElementById('telaRegistro').style.display = 'none';
                 document.getElementById('telaJogo').style.display = 'block';
                 ouvirPartida();
             } catch (err) {
-                alert("Erro crítico no código: " + err.message);
+                alert("Erro: " + err.message);
             }
         }
 
@@ -99,6 +95,10 @@
             _supabase.channel('partida-channel')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'partida' }, payload => {
                 const dados = payload.new;
+                if(dados.status_jogo === "pausado") {
+                    document.getElementById('statusPlayer').innerText = "⏸️ Jogo Pausado pelo Notebook!";
+                    return;
+                }
                 if (dados.jogadores_vivos && dados.jogadores_vivos.includes(meuId)) {
                     document.getElementById('statusPlayer').innerText = "Sua vez! Repita a sequência:";
                     palpites = [];
