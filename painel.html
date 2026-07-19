@@ -78,7 +78,6 @@
         async function limparBanco() {
             try {
                 await _supabase.from('jogadores').delete().neq('id', '0');
-                await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [] });
             } catch(e) { console.log(e); }
         }
         
@@ -103,10 +102,13 @@
 
             jogadoresAtivos.forEach(jog => {
                 const div = document.createElement('div');
+                // Considera enviado apenas se for uma lista/array válido de cores
+                const temRespostaValida = jog.resposta && Array.isArray(jog.resposta);
+
                 if (!jog.vivo) {
                     div.className = "avatar-container eliminado";
                     div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Eliminado</span>`;
-                } else if (jog.resposta && jog.resposta.length > 0) {
+                } else if (temRespostaValida) {
                     div.className = "avatar-container submetido";
                     div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Enviado!</span>`;
                 } else {
@@ -130,7 +132,8 @@
             const vivos = jogadoresAtivos.filter(j => j.vivo);
             if (vivos.length === 0) return;
 
-            const todosResponderam = vivos.every(j => j.resposta && j.resposta.length > 0);
+            // Só processa se todos responderam com uma lista de jogadas válida
+            const todosResponderam = vivos.every(j => j.resposta && Array.isArray(j.resposta));
             if (todosResponderam) {
                 corrigirRodadaAutomatica(vivos);
             }
@@ -143,13 +146,13 @@
             let nomesAcertaram = [];
 
             for (let jog of vivos) {
-                const resp = Array.isArray(jog.resposta) ? jog.resposta : JSON.parse(jog.resposta || "[]");
+                const resp = jog.resposta || [];
                 const acertou = resp.length === sequencia.length && resp.every((v, i) => v === sequencia[i]);
 
                 if (!acertou) {
-                    await _supabase.from('jogadores').update({ vivo: false, resposta: null }).eq('id', jog.id);
+                    await _supabase.from('jogadores').update({ vivo: false, resposta: "BLOQUEADO" }).eq('id', jog.id);
                 } else {
-                    await _supabase.from('jogadores').update({ resposta: null }).eq('id', jog.id);
+                    await _supabase.from('jogadores').update({ resposta: "BLOQUEADO" }).eq('id', jog.id);
                     nomesAcertaram.push(jog.nome);
                 }
             }
@@ -180,14 +183,13 @@
             jogoPausado = false;
             checandoRespostas = false;
             sequencia = [];
-            await _supabase.from('jogadores').update({ vivo: true, resposta: null }).neq('id', '0');
+            await _supabase.from('jogadores').update({ vivo: true, resposta: "BLOQUEADO" }).neq('id', '0');
             setTimeout(proximaRodada, 800);
         }
 
-        async function pausarJogo() {
+        function pausarJogo() {
             jogoPausado = !jogoPausado;
             document.getElementById('btnPausar').innerText = jogoPausado ? "Retomar" : "Pausar";
-            await _supabase.from('partida').update({ status_jogo: jogoPausado ? "pausado" : "rodando" }).eq('id', 1);
         }
 
         async function reiniciarJogo() {
@@ -205,7 +207,6 @@
             const { data: vivos } = await _supabase.from('jogadores').select('*').eq('vivo', true);
             if (!vivos || vivos.length === 0) {
                 document.getElementById('status').innerText = "💀 Fim de Jogo! Não restaram jogadores vivos.";
-                await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
                 return;
             }
 
@@ -214,8 +215,8 @@
 
             document.getElementById('status').innerText = "Atenção à sequência...";
             
-            await _supabase.from('jogadores').update({ resposta: null }).eq('vivo', true);
-            await _supabase.from('partida').update({ sequencia_atual: sequencia, status_jogo: "piscando" }).eq('id', 1);
+            // Celular vê "PISCANDO" e bloqueia os botões enquanto as luzes brilham
+            await _supabase.from('jogadores').update({ resposta: "PISCANDO" }).eq('vivo', true);
             
             await new Promise(r => setTimeout(r, 1200));
 
@@ -224,7 +225,8 @@
                 await new Promise(r => setTimeout(r, 700));
             }
 
-            await _supabase.from('partida').update({ status_jogo: "rodando" }).eq('id', 1);
+            // Celular vê NULL e é forçado a liberar instantaneamente!
+            await _supabase.from('jogadores').update({ resposta: null }).eq('vivo', true);
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
         }
     </script>
