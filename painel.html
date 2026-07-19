@@ -2,15 +2,11 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Gênias Heiki</title>
+    <title>Gênias Heiki - Painel Principal</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
-        
-        /* Layout Principal Lado a Lado */
         .conteudo-principal { display: flex; justify-content: center; align-items: flex-start; gap: 50px; max-width: 800px; margin: 20px auto; }
-        
-        /* Lado Esquerdo: Jogo e Controles */
         .lado-esquerdo { flex: 1; display: flex; flex-direction: column; align-items: center; }
         .painel { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 300px; margin-top: 10px; }
         .botao { width: 140px; height: 140px; border-radius: 15px; opacity: 0.4; transition: 0.1s; }
@@ -20,36 +16,24 @@
         #amarelo { background: #ffff00; color: #ffff00; }
         #azul { background: #0000ff; color: #0000ff; }
         
-        /* Lado Direito: Coluna de Jogadores */
         .coluna-direita { width: 220px; background: #222; padding: 15px; border-radius: 15px; border: 1px solid #333; max-height: 500px; overflow-y: auto; }
         .coluna-direita h3 { margin-top: 0; border-bottom: 1px solid #444; padding-bottom: 8px; }
         .grid-rostos { display: flex; flex-direction: column; gap: 15px; align-items: center; }
         
         .avatar-container { position: relative; width: 100px; text-align: center; transition: 0.3s; }
-        .avatar { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 4px solid #00ff00; }
+        .avatar { width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 4px solid #ffaa00; }
         .avatar-container p { margin: 5px 0 2px 0; font-size: 14px; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .status-player { font-size: 11px; margin: 0; color: #aaa; }
         
-        /* Efeito de piscar para quem ainda NÃO enviou */
-        @keyframes pulsoPiscante {
-            0% { opacity: 0.4; transform: scale(0.95); }
-            50% { opacity: 1; transform: scale(1.02); }
-            100% { opacity: 0.4; transform: scale(0.95); }
-        }
-        .piscando { animation: pulsoPiscante 1.5s infinite ease-in-out; }
-        .piscando img { border-color: #ffaa00 !important; }
-        .piscando .status-player { color: #ffaa00; font-weight: bold; }
-
-        /* Estilo para quem já enviou */
-        .submetido img { border-color: #00ffca !important; box-shadow: 0 0 10px #00ffca; }
+        /* Enviou a resposta */
+        .submetido img { border-color: #00ffca !important; box-shadow: 0 0 15px #00ffca; }
         .submetido .status-player { color: #00ffca; font-weight: bold; }
         
-        /* Estilo de Eliminado */
+        /* Eliminado */
         .eliminado img { border-color: #ff0000 !important; filter: grayscale(1); }
         .eliminado::after { content: "❌"; position: absolute; top: 15px; left: 35px; font-size: 30px; z-index: 10; }
         .eliminado .status-player { color: #ff0000; }
         
-        /* Painel de Controle de Botões */
         .controles { margin: 10px; display: flex; flex-wrap: wrap; justify-content: center; gap: 5px; }
         .btn-ctrl { padding: 10px 15px; font-size: 15px; cursor: pointer; border-radius: 5px; border: none; font-weight: bold; }
         #btnIniciar { background: #00ff00; color: black; }
@@ -63,12 +47,11 @@
     <h2 id="status">Aguardando jogadores...</h2>
     
     <div class="conteudo-principal">
-        <!-- ÁREA DOS PADS COLORIDOS (ESQUERDA) -->
         <div class="lado-esquerdo">
             <div class="controles">
                 <button id="btnIniciar" class="btn-ctrl" onclick="iniciarJogo()">Iniciar</button>
                 <button id="btnPausar" class="btn-ctrl" onclick="pausarJogo()">Pausar</button>
-                <button id="btnCorrigir" class="btn-ctrl" onclick="clicouCorrigirManual()">👉 Corrigir Rodada</button>
+                <button id="btnCorrigir" class="btn-ctrl" onclick="corrigirRodada()">👉 Corrigir Respostas</button>
                 <button id="btnReiniciar" class="btn-ctrl" onclick="reiniciarJogo()">Reiniciar</button>
             </div>
 
@@ -80,7 +63,6 @@
             </div>
         </div>
 
-        <!-- COLUNA DOS JOGADORES (DIREITA) -->
         <div class="coluna-direita">
             <h3>Jogadores</h3>
             <div class="grid-rostos" id="listaJogadores"></div>
@@ -95,70 +77,38 @@
         let sequencia = [];
         let jogadoresAtivos = [];
         let jogoPausado = false;
-        let dadosPartidaAtual = null;
-
-        const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
-        function tocarSom(cor) {
-            try {
-                const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                const osc = ctx.createOscillator();
-                const gain = ctx.createGain();
-                osc.frequency.value = frequencias[cor];
-                osc.connect(gain);
-                gain.connect(ctx.destination);
-                osc.start();
-                gain.gain.setValueAtTime(0.3, ctx.currentTime);
-                gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
-                osc.stop(ctx.currentTime + 0.4);
-            } catch(e) { console.error(e); }
-        }
 
         async function limparBanco() {
             try {
-                await _supabase.from('jogadores').delete().neq('id', 0);
-                // Garante que a linha padrão ID 1 exista de forma limpa no banco
-                await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [], verificar_resposta: false, resposta_jogador: [] });
+                await _supabase.from('jogadores').delete().neq('id', '0');
+                await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [] });
             } catch(e) { console.log(e); }
         }
-        limparBanco();
+        // Só limpe se você realmente clicar em reiniciar para evitar wipes acidentais ao recarregar a aba
+        
+        // Polling constante a cada 800ms para monitorar os jogadores e o que eles enviam
+        setInterval(buscarAtualizacoes, 800);
 
-        // 1. Atualizações em tempo real dos JOGADORES entrando/saindo
-        _supabase.channel('jogadores-channel')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
-            atualizarLobby();
-        })
-        .subscribe();
-
-        // 2. SOLUÇÃO DO TRAVAMENTO: Polling Ativo de 1 segundo para a tabela PARTIDA
-        setInterval(async () => {
+        async function buscarAtualizacoes() {
             if (jogoPausado) return;
             try {
-                const { data, error } = await _supabase.from('partida').select('*').eq('id', 1).single();
-                if (data && !error) {
-                    dadosPartidaAtual = data;
-                    reavaliarInterfaceEnvios();
-                }
-            } catch(err) { console.error("Erro no polling de dados:", err); }
-        }, 1000);
-
-        async function atualizarLobby() {
-            try {
                 const { data } = await _supabase.from('jogadores').select('*');
-                if(!data) return;
-                jogadoresAtivos = data;
-                reavaliarInterfaceEnvios();
-            } catch(e) { console.error(e); }
+                if (data) {
+                    jogadoresAtivos = data;
+                    renderizarInterface();
+                }
+            } catch(err) { console.error(err); }
         }
 
-        function reavaliarInterfaceEnvios() {
+        function renderizarInterface() {
             const container = document.getElementById('listaJogadores');
             container.innerHTML = '';
 
             const vivos = jogadoresAtivos.filter(j => j.vivo);
-            const temRespostaPendente = dadosPartidaAtual && dadosPartidaAtual.verificar_resposta;
+            // Verifica se algum jogador vivo já enviou resposta nesta rodada
+            const alguemEnviou = vivos.some(j => j.resposta && j.resposta.length > 0);
             
-            // Exibe ou oculta o botão Corrigir baseado nos dados reais salvos no banco
-            document.getElementById('btnCorrigir').style.display = (temRespostaPendente && sequencia.length > 0) ? 'inline-block' : 'none';
+            document.getElementById('btnCorrigir').style.display = (alguemEnviou && sequencia.length > 0) ? 'inline-block' : 'none';
 
             jogadoresAtivos.forEach(jog => {
                 const div = document.createElement('div');
@@ -166,19 +116,12 @@
                 if (!jog.vivo) {
                     div.className = "avatar-container eliminado";
                     div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Eliminado</span>`;
-                } else if (sequencia.length > 0) {
-                    if (temRespostaPendente && dadosPartidaAtual.ultimo_jogador_id == jog.id) {
-                        // PARALISA O PISCA: O banco confirmou o recebimento
-                        div.className = "avatar-container submetido";
-                        div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Enviado!</span>`;
-                    } else {
-                        // AINDA NÃO SUBMETEU: Fica piscando
-                        div.className = "avatar-container piscando";
-                        div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Aguardando...</span>`;
-                    }
+                } else if (jog.resposta && jog.resposta.length > 0) {
+                    div.className = "avatar-container submetido";
+                    div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Enviado!</span>`;
                 } else {
                     div.className = "avatar-container";
-                    div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Pronto</span>`;
+                    div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Aguardando...</span>`;
                 }
                 container.appendChild(div);
             });
@@ -186,7 +129,7 @@
             if (vivos.length === 0 && sequencia.length > 0) {
                 document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
             } else if (sequencia.length > 0) {
-                document.getElementById('status').innerText = temRespostaPendente ? "Padrão recebido! Clique em Corrigir." : `Repitam a sequência! (${vivos.length} vivos)`;
+                document.getElementById('status').innerText = alguemEnviou ? "Respostas recebidas! Clique em Corrigir." : `Repitam a sequência! (${vivos.length} vivos)`;
             } else {
                 document.getElementById('status').innerText = `Aguardando jogadores... (${jogadoresAtivos.length} na sala)`;
             }
@@ -196,33 +139,29 @@
             const btn = document.getElementById(cor);
             if(!btn) return;
             btn.classList.add('ativo');
-            tocarSom(cor);
             setTimeout(() => btn.classList.remove('ativo'), 400);
         }
 
         async function iniciarJogo() {
-            if(jogadoresAtivos.length === 0) return alert("Aguarde pelo menos 1 jogador entrar!");
+            if(jogadoresAtivos.length === 0) return alert("Aguarde os jogadores entrarem!");
             jogoPausado = false;
-            document.getElementById('btnPausar').innerText = "Pausar";
             sequencia = [];
-            await _supabase.from('jogadores').update({ vivo: true }).neq('id', 0);
+            // Reseta respostas antigas e revive jogadores
+            await _supabase.from('jogadores').update({ vivo: true, resposta: null }).neq('id', '0');
             setTimeout(proximaRodada, 800);
         }
 
         async function pausarJogo() {
             jogoPausado = !jogoPausado;
-            const status = jogoPausado ? "pausado" : "rodando";
             document.getElementById('btnPausar').innerText = jogoPausado ? "Retomar" : "Pausar";
-            document.getElementById('status').innerText = jogoPausado ? "Jogo Pausado" : "Repitam a sequência!";
-            await _supabase.from('partida').update({ status_jogo: status }).eq('id', 1);
+            await _supabase.from('partida').update({ status_jogo: jogoPausado ? "pausado" : "rodando" }).eq('id', 1);
         }
 
         async function reiniciarJogo() {
-            if(confirm("Deseja zerar a partida e remover todos os jogadores?")) {
+            if(confirm("Zerar partida?")) {
                 await limparBanco();
                 sequencia = [];
-                dadosPartidaAtual = null;
-                atualizarLobby();
+                renderizarInterface();
             }
         }
 
@@ -240,64 +179,34 @@
                 await new Promise(r => setTimeout(r, 700));
             }
 
-            const vivos = jogadoresAtivos.filter(j => j.vivo);
-            await _supabase.from('partida').update({ 
-                sequencia_atual: sequencia, 
-                verificar_resposta: false,
-                status_jogo: "rodando",
-                resposta_jogador: [],
-                jogadores_vivos: vivos.map(v => v.id)
-            }).eq('id', 1);
+            // Limpa o campo de resposta dos jogadores no banco para a nova rodada
+            await _supabase.from('jogadores').update({ resposta: null }).eq('vivo', true);
+            await _supabase.from('partida').update({ sequencia_atual: sequencia, status_jogo: "rodando" }).eq('id', 1);
             
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
         }
 
-        // FUNÇÃO DE CORREÇÃO DO BOTÃO IMPLEMENTADO
-        async function clicouCorrigirManual() {
-            if(!dadosPartidaAtual || !dadosPartidaAtual.verificar_resposta) return;
+        async function corrigirRodada() {
             document.getElementById('btnCorrigir').style.display = 'none';
+            let houveEliminado = false;
 
-            try {
-                const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', dadosPartidaAtual.ultimo_jogador_id).single();
-                if(!jogador) return;
+            for (let jog of jogadoresAtivos) {
+                if (!jog.vivo) continue;
 
-                const arrResposta = Array.isArray(dadosPartidaAtual.resposta_jogador) ? dadosPartidaAtual.resposta_jogador : JSON.parse(dadosPartidaAtual.resposta_jogador || "[]");
-                const arrSequencia = Array.isArray(sequencia) ? sequencia : [];
-                
-                const acertou = arrResposta.length === arrSequencia.length && arrResposta.every((val, i) => val === arrSequencia[i]);
+                // Garante que a resposta seja lida como Array
+                const resp = Array.isArray(jog.resposta) ? jog.resposta : JSON.parse(jog.resposta || "[]");
+                const acertou = resp.length === sequencia.length && resp.every((v, i) => v === sequencia[i]);
 
                 if (!acertou) {
-                    await _supabase.from('jogadores').update({ vivo: false }).eq('id', jogador.id);
-                    document.getElementById('status').innerText = `💥 ${jogador.nome} errou e foi ELIMINADO!`;
+                    await _supabase.from('jogadores').update({ vivo: false, resposta: null }).eq('id', jog.id);
+                    houveEliminado = true;
                 } else {
-                    document.getElementById('status').innerText = `✅ ${jogador.nome} acertou a sequência!`;
+                    await _supabase.from('jogadores').update({ resposta: null }).eq('id', jog.id);
                 }
-
-                const { data: todos } = await _supabase.from('jogadores').select('*');
-                jogadoresAtivos = todos || [];
-                const vivosRestantes = jogadoresAtivos.filter(j => j.vivo);
-
-                // Limpa os dados de resposta para liberar a próxima rodada
-                await _supabase.from('partida').update({ 
-                    verificar_resposta: false,
-                    resposta_jogador: [],
-                    jogadores_vivos: vivosRestantes.map(v => v.id)
-                }).eq('id', 1);
-
-                if (vivosRestantes.length === 0) {
-                    setTimeout(async () => {
-                        document.getElementById('status').innerText = "💀 Fim de Jogo! Todos foram eliminados.";
-                        await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
-                        reavaliarInterfaceEnvios();
-                    }, 2000);
-                } else {
-                    setTimeout(proximaRodada, 2500);
-                }
-
-            } catch (err) {
-                console.error("Erro ao processar correção manual:", err);
-                await _supabase.from('partida').update({ verificar_resposta: false }).eq('id', 1);
             }
+
+            document.getElementById('status').innerText = "Resultados computados!";
+            setTimeout(proximaRodada, 2000);
         }
     </script>
 </body>
