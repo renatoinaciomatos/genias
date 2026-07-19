@@ -62,6 +62,7 @@
         let minhaFotoBase64 = "";
         let palpites = [];
         let euEstouVivo = true;
+        let aguardandoValidacaoServidor = false;
         
         const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co"; 
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; 
@@ -98,37 +99,49 @@
 
             document.getElementById('telaRegistro').style.display = 'none';
             document.getElementById('telaJogo').style.display = 'block';
-            ouvirStatusPartida();
+            
+            // Ativa o loop persistente de sincronização (800 milissegundos)
+            setInterval(sincronizarEstadoComServidor, 800);
         }
 
-        function ouvirStatusPartida() {
-            _supabase.channel('partida-global')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'partida' }, payload => {
-                const d = payload.new;
-                if(!d || !euEstouVivo) return;
-                
-                if(d.status_jogo === "rodando") {
-                     document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
-                     bloquearBotoes(false);
-                } else if(d.status_jogo === "piscando") {
-                     // CORREÇÃO: Limpa os botões e os palpites locais automaticamente para preparar o próximo turno destravado!
-                     limparPadraoLocal();
-                     document.getElementById('statusPlayer').innerText = "Preste atenção no Painel...";
-                     bloquearBotoes(true);
-                } else {
-                     document.getElementById('statusPlayer').innerText = "Aguardando próxima rodada...";
-                     bloquearBotoes(true);
+        // SOLUÇÃO DO BUG: Monitoramento ativo e direto via Pooling
+        async function sincronizarEstadoComServidor() {
+            try {
+                // 1. Verifica meu status de vida e de resposta atual
+                const { data: eu } = await _supabase.from('jogadores').select('*').eq('id', meuId).single();
+                if (eu) {
+                    if (!eu.vivo) {
+                        euEstouVivo = false;
+                        document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
+                        bloquearBotoes(true);
+                        return;
+                    }
+                    
+                    // Se a resposta no banco voltou a ser NULL, significa que o Painel já processou o turno!
+                    if (aguardandoValidacaoServidor && (!eu.resposta || eu.resposta.length === 0)) {
+                        aguardandoValidacaoServidor = false;
+                        limparPadraoLocal(); // Limpa os botões locais e prepara o próximo turno
+                    }
                 }
-            }).subscribe();
 
-            _supabase.channel('status-individual')
-            .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
-                if(payload.new && !payload.new.vivo) {
-                    euEstouVivo = false;
-                    document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
-                    bloquearBotoes(true);
+                // 2. Verifica as condições globais da partida
+                const { data: partida } = await _supabase.from('partida').select('*').eq('id', 1).single();
+                if (partida && euEstouVivo) {
+                    if (aguardandoValidacaoServidor) {
+                        document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
+                        bloquearBotoes(true);
+                    } else if (partida.status_jogo === "rodando") {
+                        document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
+                        bloquearBotoes(false);
+                    } else if (partida.status_jogo === "piscando") {
+                        document.getElementById('statusPlayer').innerText = "Preste atenção no Painel...";
+                        bloquearBotoes(true);
+                    } else {
+                        document.getElementById('statusPlayer').innerText = "Aguardando próxima rodada...";
+                        bloquearBotoes(true);
+                    }
                 }
-            }).subscribe();
+            } catch (err) { console.error("Erro na sincronização:", err); }
         }
 
         function bloquearBotoes(status) {
@@ -136,7 +149,7 @@
         }
 
         function pressionar(cor) {
-            if(!euEstouVivo) return;
+            if(!euEstouVivo || aguardandoValidacaoServidor) return;
             palpites.push(cor);
             piscarLocal(cor);
             document.getElementById('btnEnviar').innerText = `Enviar Sequência (${palpites.length})`;
@@ -174,6 +187,9 @@
                     .eq('id', meuId);
 
                 if (error) throw error;
+                
+                // Sinaliza que o celular está esperando o painel ler os dados
+                aguardandoValidacaoServidor = true; 
                 document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
             } catch(err) {
                 console.error(err);
