@@ -62,7 +62,7 @@
         let minhaFotoBase64 = "";
         let palpites = [];
         let euEstouVivo = true;
-        let aguardandoValidacaoServidor = false;
+        let limpouProximaRodada = false;
         
         const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co"; 
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; 
@@ -93,63 +93,63 @@
             if(!nome || !minhaFotoBase64) return alert("Nome e foto obrigatórios!");
 
             const { error } = await _supabase.from('jogadores').insert([
-                { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true, resposta: null }
+                { id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true, resposta: "BLOQUEADO" }
             ]);
             if (error) return alert("Erro ao entrar: " + error.message);
 
             document.getElementById('telaRegistro').style.display = 'none';
             document.getElementById('telaJogo').style.display = 'block';
             
-            // Ativa o loop persistente de sincronização (800 milissegundos)
-            setInterval(sincronizarEstadoComServidor, 800);
+            setInterval(sincronizarEstadoComServidor, 600);
         }
 
-        // SOLUÇÃO DO BUG: Monitoramento ativo e direto via Pooling
         async function sincronizarEstadoComServidor() {
             try {
-                // 1. Verifica meu status de vida e de resposta atual
                 const { data: eu } = await _supabase.from('jogadores').select('*').eq('id', meuId).single();
-                if (eu) {
-                    if (!eu.vivo) {
-                        euEstouVivo = false;
-                        document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
-                        bloquearBotoes(true);
-                        return;
-                    }
-                    
-                    // Se a resposta no banco voltou a ser NULL, significa que o Painel já processou o turno!
-                    if (aguardandoValidacaoServidor && (!eu.resposta || eu.resposta.length === 0)) {
-                        aguardandoValidacaoServidor = false;
-                        limparPadraoLocal(); // Limpa os botões locais e prepara o próximo turno
-                    }
-                }
+                if (!eu) return;
 
-                // 2. Verifica as condições globais da partida
-                const { data: partida } = await _supabase.from('partida').select('*').eq('id', 1).single();
-                if (partida && euEstouVivo) {
-                    if (aguardandoValidacaoServidor) {
-                        document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
-                        bloquearBotoes(true);
-                    } else if (partida.status_jogo === "rodando") {
-                        document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
-                        bloquearBotoes(false);
-                    } else if (partida.status_jogo === "piscando") {
-                        document.getElementById('statusPlayer').innerText = "Preste atenção no Painel...";
-                        bloquearBotoes(true);
-                    } else {
-                        document.getElementById('statusPlayer').innerText = "Aguardando próxima rodada...";
-                        bloquearBotoes(true);
+                if (!eu.vivo) {
+                    euEstouVivo = false;
+                    document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
+                    bloquearBotoes(true);
+                    return;
+                }
+                
+                // MÁGICA DO DESTRAVAMENTO: Se no banco está null, libera na hora!
+                if (eu.resposta === null) {
+                    if (!limpouProximaRodada) {
+                        limparPadraoLocal();
+                        limpouProximaRodada = true; 
                     }
+                    document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
+                    bloquearBotoes(false); // Destrava fisicamente os botões HTML
+                } 
+                else if (eu.resposta === "PISCANDO") {
+                    limpouProximaRodada = false;
+                    document.getElementById('statusPlayer').innerText = "Preste atenção no Painel...";
+                    bloquearBotoes(true);
+                } 
+                else if (eu.resposta === "BLOQUEADO") {
+                    limpouProximaRodada = false;
+                    document.getElementById('statusPlayer').innerText = "Aguardando próxima rodada...";
+                    bloquearBotoes(true);
+                } 
+                else if (Array.isArray(eu.resposta)) {
+                    // Se possui array de respostas, está guardando avaliação
+                    document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
+                    bloquearBotoes(true);
                 }
             } catch (err) { console.error("Erro na sincronização:", err); }
         }
 
         function bloquearBotoes(status) {
-            document.querySelectorAll('.btn-game, .btn-action, .btn-enviar').forEach(b => b.disabled = status);
+            document.querySelectorAll('.btn-game, .btn-action, .btn-enviar').forEach(b => {
+                b.disabled = status;
+            });
         }
 
         function pressionar(cor) {
-            if(!euEstouVivo || aguardandoValidacaoServidor) return;
+            if(!euEstouVivo) return;
             palpites.push(cor);
             piscarLocal(cor);
             document.getElementById('btnEnviar').innerText = `Enviar Sequência (${palpites.length})`;
@@ -182,14 +182,10 @@
             document.getElementById('statusPlayer').innerText = "Enviando...";
 
             try {
-                const { error } = await _supabase.from('jogadores')
+                await _supabase.from('jogadores')
                     .update({ resposta: palpites })
                     .eq('id', meuId);
-
-                if (error) throw error;
                 
-                // Sinaliza que o celular está esperando o painel ler os dados
-                aguardandoValidacaoServidor = true; 
                 document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
             } catch(err) {
                 console.error(err);
