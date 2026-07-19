@@ -68,6 +68,36 @@
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; 
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+        const sonsGenius = {
+            verde: 415,
+            vermelho: 310,
+            amarelo: 252,
+            azul: 209
+        };
+
+        function tocarSom(cor) {
+            try {
+                const AudioContext = window.AudioContext || window.webkitAudioContext;
+                const ctx = new AudioContext();
+                const oscillator = ctx.createOscillator();
+                const gainNode = ctx.createGain();
+                
+                oscillator.type = 'sine';
+                oscillator.frequency.value = sonsGenius[cor] || 440;
+                
+                oscillator.connect(gainNode);
+                gainNode.connect(ctx.destination);
+                
+                gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.00001, ctx.currentTime + 0.2); // Som ligeiramente mais curto para o toque
+                
+                oscillator.start(ctx.currentTime);
+                oscillator.stop(ctx.currentTime + 0.2);
+            } catch (e) {
+                console.log("Áudio bloqueado:", e);
+            }
+        }
+
         const video = document.getElementById('video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
@@ -108,8 +138,6 @@
                 const { data: eu } = await _supabase.from('jogadores').select('*').eq('id', meuId).single();
                 if (!eu) return;
 
-                // CORREÇÃO: Atualiza dinamicamente a variável local com base no banco!
-                // Se o painel ressuscitou o jogador, a variável local volta a ser verdadeira imediatamente.
                 euEstouVivo = eu.vivo;
 
                 if (!euEstouVivo) {
@@ -150,7 +178,7 @@
         }
 
         function pressionar(cor) {
-            if(!euEstouVivo) return; // Agora vai funcionar porque euEstouVivo voltará a ser true!
+            if(!euEstouVivo) return;
             palpites.push(cor);
             piscarLocal(cor);
             document.getElementById('btnEnviar').innerText = `Enviar Sequência (${palpites.length})`;
@@ -159,6 +187,7 @@
         function piscarLocal(cor) {
             const btn = document.getElementById(`v-${cor}`);
             if(btn) {
+                tocarSom(cor);
                 btn.classList.add('ativo');
                 setTimeout(() => btn.classList.remove('ativo'), 150);
             }
