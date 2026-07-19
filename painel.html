@@ -2,7 +2,7 @@
 <html lang="pt-br">
 <head>
     <meta charset="UTF-8">
-    <title>Notebook - Painel Genius Multiplayer</title>
+    <title>Gênias Heiki</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #111; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -40,7 +40,7 @@
         .piscando img { border-color: #ffaa00 !important; }
         .piscando .status-player { color: #ffaa00; font-weight: bold; }
 
-        /* Estilo para quem já enviou e está safo/estável */
+        /* Estilo para quem já enviou */
         .submetido img { border-color: #00ffca !important; box-shadow: 0 0 10px #00ffca; }
         .submetido .status-player { color: #00ffca; font-weight: bold; }
         
@@ -116,23 +116,30 @@
         async function limparBanco() {
             try {
                 await _supabase.from('jogadores').delete().neq('id', 0);
+                // Garante que a linha padrão ID 1 exista de forma limpa no banco
                 await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [], verificar_resposta: false, resposta_jogador: [] });
             } catch(e) { console.log(e); }
         }
         limparBanco();
 
-        // Escuta em tempo real estável
-        _supabase.channel('custom-all-channel')
+        // 1. Atualizações em tempo real dos JOGADORES entrando/saindo
+        _supabase.channel('jogadores-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
             atualizarLobby();
         })
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, payload => {
-            if(payload.new && !jogoPausado) {
-                dadosPartidaAtual = payload.new;
-                reavaliarInterfaceEnvios();
-            }
-        })
         .subscribe();
+
+        // 2. SOLUÇÃO DO TRAVAMENTO: Polling Ativo de 1 segundo para a tabela PARTIDA
+        setInterval(async () => {
+            if (jogoPausado) return;
+            try {
+                const { data, error } = await _supabase.from('partida').select('*').eq('id', 1).single();
+                if (data && !error) {
+                    dadosPartidaAtual = data;
+                    reavaliarInterfaceEnvios();
+                }
+            } catch(err) { console.error("Erro no polling de dados:", err); }
+        }, 1000);
 
         async function atualizarLobby() {
             try {
@@ -143,15 +150,14 @@
             } catch(e) { console.error(e); }
         }
 
-        // CONTROLADOR DE PISCAR E INTERFACE: Analisa quem mandou resposta e quem está pendente
         function reavaliarInterfaceEnvios() {
             const container = document.getElementById('listaJogadores');
             container.innerHTML = '';
 
             const vivos = jogadoresAtivos.filter(j => j.vivo);
-            
-            // Verifica se o banco já possui uma resposta ativa registrada aguardando avaliação
             const temRespostaPendente = dadosPartidaAtual && dadosPartidaAtual.verificar_resposta;
+            
+            // Exibe ou oculta o botão Corrigir baseado nos dados reais salvos no banco
             document.getElementById('btnCorrigir').style.display = (temRespostaPendente && sequencia.length > 0) ? 'inline-block' : 'none';
 
             jogadoresAtivos.forEach(jog => {
@@ -161,18 +167,16 @@
                     div.className = "avatar-container eliminado";
                     div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Eliminado</span>`;
                 } else if (sequencia.length > 0) {
-                    // O jogo está rodando
                     if (temRespostaPendente && dadosPartidaAtual.ultimo_jogador_id == jog.id) {
-                        // Este jogador já submeteu a resposta dele nesta rodada
+                        // PARALISA O PISCA: O banco confirmou o recebimento
                         div.className = "avatar-container submetido";
                         div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Enviado!</span>`;
                     } else {
-                        // Ele ainda não submeteu ou está pensando: FICA PISCANDO
+                        // AINDA NÃO SUBMETEU: Fica piscando
                         div.className = "avatar-container piscando";
                         div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Aguardando...</span>`;
                     }
                 } else {
-                    // Lobby inicial
                     div.className = "avatar-container";
                     div.innerHTML = `<img src="${jog.foto}" class="avatar"><p>${jog.nome}</p><span class="status-player">Pronto</span>`;
                 }
@@ -248,7 +252,7 @@
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
         }
 
-        // EXECUÇÃO MANUAL DO REQUISITO: Acionada ao clicar no botão "Corrigir Rodada"
+        // FUNÇÃO DE CORREÇÃO DO BOTÃO IMPLEMENTADO
         async function clicouCorrigirManual() {
             if(!dadosPartidaAtual || !dadosPartidaAtual.verificar_resposta) return;
             document.getElementById('btnCorrigir').style.display = 'none';
@@ -269,12 +273,11 @@
                     document.getElementById('status').innerText = `✅ ${jogador.nome} acertou a sequência!`;
                 }
 
-                // Carrega sobreviventes atualizados pós-cálculo
                 const { data: todos } = await _supabase.from('jogadores').select('*');
                 jogadoresAtivos = todos || [];
                 const vivosRestantes = jogadoresAtivos.filter(j => j.vivo);
 
-                // Desliga o sinalizador de checagem limpando a rodada no banco
+                // Limpa os dados de resposta para liberar a próxima rodada
                 await _supabase.from('partida').update({ 
                     verificar_resposta: false,
                     resposta_jogador: [],
@@ -292,7 +295,7 @@
                 }
 
             } catch (err) {
-                console.error("Erro na checagem manual:", err);
+                console.error("Erro ao processar correção manual:", err);
                 await _supabase.from('partida').update({ verificar_resposta: false }).eq('id', 1);
             }
         }
