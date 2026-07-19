@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <title>Notebook - Painel Genius Multiplayer</title>
-    <!-- CORREÇÃO: Link oficial e completo da biblioteca do Supabase -->
-    <script src="https://jsdelivr.net"></script>
+    <!-- CORREÇÃO: Biblioteca oficial e completa do Supabase v2 -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #111; color: white; font-family: sans-serif; text-align: center; }
         .painel { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 300px; margin: 20px auto; }
-        .botao { width: 140px; height: 140px; border-radius: 15px; opacity: 0.4; transition: 0.1s; }
-        .ativo { opacity: 1 !important; box-shadow: 0 0 20px currentColor; }
+        .botao { width: 140px; height: 140px; border-radius: 15px; opacity: 0.4; transition: 0.1s; cursor: pointer; }
+        .ativo { opacity: 1 !important; box-shadow: 0 0 30px currentColor; }
         #verde { background: #00ff00; color: #00ff00; }
         #vermelho { background: #ff0000; color: #ff0000; }
         #amarelo { background: #ffff00; color: #ffff00; }
@@ -28,7 +28,7 @@
 </head>
 <body>
     <h1>Genius Família - Painel Principal</h1>
-    <h2 id="status">Aguardando jogadores...</h2>
+    <h2 id="status">Conectando ao banco...</h2>
     
     <div class="controles">
         <button id="btnIniciar" class="btn-ctrl" onclick="iniciarJogo()">Iniciar</button>
@@ -46,7 +46,8 @@
     <div class="grid-rostos" id="listaJogadores"></div>
 
     <script>
-        const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co/rest/v1/";
+        // CORREÇÃO: URL base sem o sufixo rest/v1/ e utilizando suas chaves atualizadas
+        const SUPABASE_URL = "https://qnamlriacmkhjuotuqrh.supabase.co";
         const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j";
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
@@ -54,14 +55,30 @@
         let jogadoresAtivos = [];
         let jogoPausado = false;
 
+        // Sons integrados do navegador para o painel principal
+        const frequencias = { verde: 440, vermelho: 415, amarelo: 392, azul: 329 };
+        function tocarSom(cor) {
+            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.frequency.value = frequencias[cor];
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            gain.gain.setValueAtTime(0.3, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.4);
+            osc.stop(ctx.currentTime + 0.4);
+        }
+
         async function limparBanco() {
             try {
                 await _supabase.from('jogadores').delete().neq('id', 0);
                 await _supabase.from('partida').upsert({ id: 1, status_jogo: "lobby", sequencia_atual: [], jogadores_vivos: [] });
+                document.getElementById('status').innerText = "Aguardando jogadores...";
             } catch(e) { console.log(e); }
         }
-        limparBanco();
 
+        // Configura canais Realtime
         _supabase.channel('custom-all-channel')
         .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
             atualizarLobby();
@@ -76,7 +93,9 @@
             if(!data) return;
             jogadoresAtivos = data;
             
-            document.getElementById('status').innerText = `Jogadores na sala: (${data.length})`;
+            const vivos = data.filter(j => j.vivo);
+            document.getElementById('status').innerText = `Jogadores na sala: (${data.length}) - Vivos: (${vivos.length})`;
+            
             const container = document.getElementById('listaJogadores');
             container.innerHTML = '';
 
@@ -87,15 +106,16 @@
                 container.appendChild(div);
             });
 
-            const vivos = data.filter(j => j.vivo);
             if (vivos.length === 1 && sequencia.length > 0) {
                 document.getElementById('status').innerText = `🏆 ${vivos[0].nome} Venceu o Jogo!`;
+                await _supabase.from('partida').update({ status_jogo: "fim" }).eq('id', 1);
             }
         }
 
         function piscarBotao(cor) {
             const btn = document.getElementById(cor);
             btn.classList.add('ativo');
+            tocarSom(cor);
             setTimeout(() => btn.classList.remove('ativo'), 400);
         }
 
@@ -104,7 +124,10 @@
             jogoPausado = false;
             document.getElementById('btnPausar').innerText = "Pausar";
             sequencia = [];
-            proximaRodada();
+            
+            // Força todos a ficarem vivos ao iniciar uma nova partida completa
+            await _supabase.from('jogadores').update({ vivo: true }).neq('id', 0);
+            setTimeout(proximaRodada, 1000);
         }
 
         async function pausarJogo() {
@@ -117,51 +140,71 @@
 
         async function reiniciarJogo() {
             if(confirm("Deseja zerar a partida e remover todos os jogadores?")) {
-                await limparBanco();
                 sequencia = [];
-                atualizarLobby();
+                await limparBanco();
+                await atualizarLobby();
             }
         }
 
         async function proximaRodada() {
             if(jogoPausado) return;
+            
+            const { data: todos } = await _supabase.from('jogadores').select('*');
+            const vivos = todos.filter(j => j.vivo);
+            
+            if(vivos.length === 0) {
+                document.getElementById('status').innerText = "Ninguém restou! Reinicie a partida.";
+                return;
+            }
+
             const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
             sequencia.push(cores[Math.floor(Math.random() * 4)]);
 
+            document.getElementById('status').innerText = "Preste Atenção na Sequência...";
+            await new Promise(r => setTimeout(r, 1000));
+
             for (let cor of sequencia) {
                 piscarBotao(cor);
-                await new Promise(r => setTimeout(r, 600));
+                await new Promise(r => setTimeout(r, 700));
             }
 
-            const vivos = jogadoresAtivos.filter(j => j.vivo);
-            await _supabase.from('partida').upsert({ 
-                id: 1, 
+            await _supabase.from('partida').update({ 
                 sequencia_atual: sequencia, 
                 verificar_resposta: false,
                 status_jogo: "rodando",
                 jogadores_vivos: vivos.map(v => v.id)
-            });
+            }).eq('id', 1);
+            
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
         }
 
         async function checarRespostaDoJogador(partida) {
             const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', partida.ultimo_jogador_id).single();
+            if(!jogador) return;
+
             const acertou = JSON.stringify(partida.resposta_jogador) === JSON.stringify(sequencia);
 
             if (!acertou) {
                 await _supabase.from('jogadores').update({ vivo: false }).eq('id', jogador.id);
-                alert(`${jogador.nome} errou e foi ELIMINADO!`);
+                alert(`💥 ${jogador.nome} errou e foi ELIMINADO!`);
+            } else {
+                alert(`✅ ${jogador.nome} acertou a sequência!`);
             }
 
             const { data: todos } = await _supabase.from('jogadores').select('*');
             const vivosRestantes = todos.filter(j => j.vivo);
 
             if (vivosRestantes.length <= 1) {
-                atualizarLobby();
+                await atualizarLobby();
             } else {
+                // Se ainda há mais pessoas para jogar na rodada atual antes de avançar, você gerencia aqui ou passa a vez
+                // Para simplificar o fluxo de turnos diretos:
                 proximaRodada();
             }
         }
+
+        // Executa uma limpeza inicial suave
+        limparBanco();
     </script>
 </body>
 </html>
