@@ -45,7 +45,7 @@
 
     <script>
         const SUPABASE_URL = "https://supabase.co";
-        const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFuYW1scmlhY21raGp1b3R1cXJoIiwicm9sZSI6ImFub24iLCJpYXQiOjE2Nzg4OTYwMDAsImV4cCI6MjAwMDAwMDAwMH0.123";
+        const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j";
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let meuId = Date.now();
@@ -75,9 +75,14 @@
             const nome = document.getElementById('nomeJogador').value;
             if(!nome || !minhaFotoBase64) return alert("Insira seu nome e foto!");
 
-            await _supabase.from('jogadores').insert({
+            const { error } = await _supabase.from('jogadores').insert({
                 id: meuId, nome: nome, foto: minhaFotoBase64, vivo: true
             });
+
+            if (error) {
+                alert("Erro ao entrar: " + error.message);
+                return;
+            }
 
             document.getElementById('telaRegistro').style.display = 'none';
             document.getElementById('telaJogo').style.display = 'block';
