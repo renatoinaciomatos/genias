@@ -74,6 +74,7 @@
         let jogadoresAtivos = [];
         let jogoPausado = false;
         let checandoRespostas = false;
+        let piscandoCores = false; // Nova trava para evitar duplo acionamento das luzes
 
         async function limparBanco() {
             try {
@@ -84,7 +85,8 @@
         setInterval(buscarAtualizacoes, 800);
 
         async function buscarAtualizacoes() {
-            if (jogoPausado || checandoRespostas) return;
+            // TRAVA DE OURO: Se estiver tratando respostas ou piscando o Genius, o loop não avança.
+            if (jogoPausado || checandoRespostas || piscandoCores) return;
             try {
                 const { data } = await _supabase.from('jogadores').select('*');
                 if (data) {
@@ -102,7 +104,6 @@
 
             jogadoresAtivos.forEach(jog => {
                 const div = document.createElement('div');
-                // Considera enviado apenas se for uma lista/array válido de cores
                 const temRespostaValida = jog.resposta && Array.isArray(jog.resposta);
 
                 if (!jog.vivo) {
@@ -128,11 +129,10 @@
         }
 
         function verificarFimDoTurno() {
-            if (sequencia.length === 0) return;
+            if (sequencia.length === 0 || checandoRespostas) return;
             const vivos = jogadoresAtivos.filter(j => j.vivo);
             if (vivos.length === 0) return;
 
-            // Só processa se todos responderam com uma lista de jogadas válida
             const todosResponderam = vivos.every(j => j.resposta && Array.isArray(j.resposta));
             if (todosResponderam) {
                 corrigirRodadaAutomatica(vivos);
@@ -140,6 +140,7 @@
         }
 
         async function corrigirRodadaAutomatica(vivos) {
+            if (checandoRespostas) return;
             checandoRespostas = true;
             document.getElementById('status').innerText = "Visualizando respostas...";
 
@@ -166,7 +167,7 @@
             setTimeout(async () => {
                 const { data: atualizados } = await _supabase.from('jogadores').select('*');
                 jogadoresAtivos = atualizados || [];
-                checandoRespostas = false;
+                checandoRespostas = false; // Libera avaliação para o próximo turno
                 proximaRodada();
             }, 3000);
         }
@@ -175,13 +176,14 @@
             const btn = document.getElementById(cor);
             if(!btn) return;
             btn.classList.add('ativo');
-            setTimeout(() => btn.classList.remove('ativo'), 400);
+            setTimeout(() => btn.classList.remove('ativo'), 400); // 400ms aceso
         }
 
         async function iniciarJogo() {
             if(jogadoresAtivos.length === 0) return alert("Aguarde os jogadores entrarem!");
             jogoPausado = false;
             checandoRespostas = false;
+            piscandoCores = false;
             sequencia = [];
             await _supabase.from('jogadores').update({ vivo: true, resposta: "BLOQUEADO" }).neq('id', '0');
             setTimeout(proximaRodada, 800);
@@ -197,12 +199,13 @@
                 await limparBanco();
                 sequencia = [];
                 checandoRespostas = false;
+                piscandoCores = false;
                 renderizarInterface();
             }
         }
 
         async function proximaRodada() {
-            if(jogoPausado) return;
+            if(jogoPausado || piscandoCores) return;
             
             const { data: vivos } = await _supabase.from('jogadores').select('*').eq('vivo', true);
             if (!vivos || vivos.length === 0) {
@@ -210,24 +213,29 @@
                 return;
             }
 
+            piscandoCores = true; // Ativa bloqueio de segurança
+
+            // Adiciona RIGOROSAMENTE apenas uma cor por turno à sequência já existente
             const cores = ['verde', 'vermelho', 'amarelo', 'azul'];
             sequencia.push(cores[Math.floor(Math.random() * 4)]);
 
             document.getElementById('status').innerText = "Atenção à sequência...";
             
-            // Celular vê "PISCANDO" e bloqueia os botões enquanto as luzes brilham
             await _supabase.from('jogadores').update({ resposta: "PISCANDO" }).eq('vivo', true);
             
-            await new Promise(r => setTimeout(r, 1200));
+            await new Promise(r => setTimeout(r, 1000));
 
+            // Executa a sequência uma cor por vez, no ritmo clássico cadenciado
             for (let cor of sequencia) {
                 piscarBotao(cor);
-                await new Promise(r => setTimeout(r, 700));
+                await new Promise(r => setTimeout(r, 750)); // Tempo entre acender uma cor e outra
             }
 
-            // Celular vê NULL e é forçado a liberar instantaneamente!
+            // Libera os celulares
             await _supabase.from('jogadores').update({ resposta: null }).eq('vivo', true);
             document.getElementById('status').innerText = "Repitam a sequência nos celulares!";
+            
+            piscandoCores = false; // Desativa bloqueio de segurança
         }
     </script>
 </body>
