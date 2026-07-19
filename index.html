@@ -35,8 +35,8 @@
     <div class="grid-rostos" id="listaJogadores"></div>
 
     <script>
-        const SUPABASE_URL = "SUA_URL_DO_SUPABASE";
-        const SUPABASE_KEY = "SUA_ANON_KEY_DO_SUPABASE";
+        const SUPABASE_URL = "https://supabase.co";
+        const SUPABASE_KEY = ""; // RLS desativado via SQL Grant
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let sequencia = [];
@@ -49,7 +49,7 @@
         limparBanco();
 
         _supabase.channel('custom-all-channel')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, payload => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'jogadores' }, () => {
             atualizarLobby();
         })
         .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'partida' }, payload => {
@@ -116,7 +116,6 @@
 
         async function checarRespostaDoJogador(partida) {
             const { data: jogador } = await _supabase.from('jogadores').select('*').eq('id', partida.ultimo_jogador_id).single();
-            
             const acertou = JSON.stringify(partida.resposta_jogador) === JSON.stringify(sequencia);
 
             if (!acertou) {
