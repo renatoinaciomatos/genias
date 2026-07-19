@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Jogador - Controle Genius</title>
-    <!-- CORREÇÃO: Link oficial e completo da biblioteca do Supabase -->
+    <!-- Biblioteca oficial e estável do Supabase -->
     <script src="https://jsdelivr.net"></script>
     <style>
         body { background: #222; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -45,34 +45,55 @@
     </div>
 
     <script>
-        const SUPABASE_URL = "https://supabase.co";
-        const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j";
-        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
+        // 1. VARIÁVEIS NO TOPO: Garante que o navegador conheça os objetos antes de qualquer inicialização externa
         let meuId = Date.now();
         let minhaFotoBase64 = "";
         let palpites = [];
+        let _supabase = null;
 
+        // 2. CONFIGURAÇÕES DO BANCO
+        const SUPABASE_URL = "https://supabase.co"; // Substitua pela sua URL real do Supabase
+        const SUPABASE_KEY = "sb_publishable_nc5IreiRd5tteV5d-X6XJg_Uii68X0j"; // Substitua pela sua Key real
+
+        // 3. INICIALIZAÇÃO SEGURA
+        try {
+            if (typeof supabase !== 'undefined') {
+                _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+            } else {
+                console.error("Biblioteca Supabase não foi carregada externamente.");
+            }
+        } catch (e) {
+            console.error("Falha ao instanciar o Supabase Client:", e);
+        }
+
+        // 4. LÓGICA DA CÂMERA
         const video = document.getElementById('video');
-        navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
-            .then(stream => video.srcObject = stream)
-            .catch(() => console.log("Câmera indisponível."));
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
+                .then(stream => video.srcObject = stream)
+                .catch(() => console.log("Câmera indisponível ou permissão negada."));
+        }
 
         function tirarFoto() {
             const canvas = document.getElementById('canvas');
             canvas.width = 150; canvas.height = 150;
             canvas.getContext('2d').drawImage(video, 0, 0, 150, 150);
             minhaFotoBase64 = canvas.toDataURL('image/jpeg');
-            alert("Foto capturada!");
+            alert("Foto capturada com sucesso!");
         }
 
         function carregarDaGaleria(event) {
             const reader = new FileReader();
             reader.onload = function() { minhaFotoBase64 = reader.result; };
-            reader.readAsDataURL(event.target.files[0]);
+            if(event.target.files[0]) {
+                reader.readAsDataURL(event.target.files[0]);
+            }
         }
 
         async function entrarNaPartida() {
+            if (!_supabase) {
+                return alert("Não foi possível conectar ao banco de dados. Verifique a URL do seu Supabase.");
+            }
             try {
                 const nome = document.getElementById('nomeJogador').value;
                 if(!nome) return alert("Insira seu nome!");
@@ -88,14 +109,18 @@
                 document.getElementById('telaJogo').style.display = 'block';
                 ouvirPartida();
             } catch (err) {
-                alert("Erro: " + err.message);
+                alert("Erro interno: " + err.message);
             }
         }
 
         function ouvirPartida() {
+            if (!_supabase) return;
+
             _supabase.channel('partida-channel')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'partida' }, payload => {
                 const dados = payload.new;
+                if(!dados) return;
+                
                 if(dados.status_jogo === "pausado") {
                     document.getElementById('statusPlayer').innerText = "⏸️ Jogo Pausado pelo Notebook!";
                     return;
@@ -110,7 +135,7 @@
             .subscribe();
 
             _supabase.channel('meu-status').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
-                if(!payload.new.vivo) {
+                if(payload.new && !payload.new.vivo) {
                     document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
                     document.querySelectorAll('.btn-game').forEach(b => b.disabled = true);
                 }
@@ -122,6 +147,7 @@
         }
 
         async function enviarResposta() {
+            if (!_supabase) return;
             await _supabase.from('partida').update({
                 ultimo_jogador_id: meuId,
                 resposta_jogador: palpites,
