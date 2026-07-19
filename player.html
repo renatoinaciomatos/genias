@@ -17,7 +17,6 @@
 </head>
 <body>
 
-    <!-- TELA INICIAL: LOGIN E FOTO -->
     <div id="telaRegistro">
         <h2>Entrar no Jogo</h2>
         <input type="text" id="nomeJogador" placeholder="Seu nome" style="padding: 10px; font-size: 16px;"><br><br>
@@ -27,13 +26,12 @@
         
         <label>Ou usar a Câmera:</label>
         <video id="video" autoplay playsinline></video>
-        <button onclick="tirarFoto()">Capturar Foto da Câmera</button>
+        <button onclick="tirarFoto()">Capturar Foto</button>
         <canvas id="canvas" style="display:none;"></canvas>
         
         <br><br><button onclick="entrarNaPartida()" style="padding: 12px 30px; font-size: 18px; background: #00ff00;">Entrar</button>
     </div>
 
-    <!-- TELA DO JOGO: CONTROLE GENIUS -->
     <div id="telaJogo">
         <h2 id="statusPlayer">Aguardando início...</h2>
         <div class="pad-botoes">
@@ -46,32 +44,31 @@
     </div>
 
     <script>
-        const SUPABASE_URL = "SUA_URL_DO_SUPABASE";
-        const SUPABASE_KEY = "SUA_ANON_KEY_DO_SUPABASE";
+        const SUPABASE_URL = "https://supabase.co";
+        const SUPABASE_KEY = ""; // RLS desativado via SQL Grant
         const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
         let meuId = Date.now();
         let minhaFotoBase64 = "";
         let palpites = [];
 
-        // Inicializar Câmera
         const video = document.getElementById('video');
         navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } })
             .then(stream => video.srcObject = stream)
-            .catch(err => console.log("Sem acesso à câmera, use a galeria"));
+            .catch(() => console.log("Câmera indisponível. Use a galeria."));
 
         function tirarFoto() {
             const canvas = document.getElementById('canvas');
             canvas.width = 150; canvas.height = 150;
             canvas.getContext('2d').drawImage(video, 0, 0, 150, 150);
             minhaFotoBase64 = canvas.toDataURL('image/jpeg');
-            alert("Foto capturada com sucesso!");
+            alert("Foto capturada!");
         }
 
         function carregarDaGaleria(event) {
             const reader = new FileReader();
             reader.onload = function() { minhaFotoBase64 = reader.result; };
-            reader.readAsDataURL(event.target.files[0]);
+            reader.readAsDataURL(event.target.files);
         }
 
         async function entrarNaPartida() {
@@ -92,8 +89,8 @@
             _supabase.channel('partida-channel')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'partida' }, payload => {
                 const dados = payload.new;
-                if (dados.jogadores_vivos.includes(meuId)) {
-                    document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
+                if (dados.jogadores_vivos && dados.jogadores_vivos.includes(meuId)) {
+                    document.getElementById('statusPlayer').innerText = "Sua vez! Repita a sequência:";
                     palpites = [];
                 } else {
                     document.getElementById('statusPlayer').innerText = "Aguarde os outros jogarem...";
@@ -103,7 +100,7 @@
 
             _supabase.channel('meu-status').on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'jogadores', filter: `id=eq.${meuId}` }, payload => {
                 if(!payload.new.vivo) {
-                    document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO! Olhe para a TV.";
+                    document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
                     document.querySelectorAll('.btn-game').forEach(b => b.disabled = true);
                 }
             }).subscribe();
@@ -111,7 +108,7 @@
 
         function pressionar(cor) {
             palpites.push(cor);
-            navigator.vibrate?.(50); // Efeito táctil leve no celular
+            navigator.vibrate?.(50);
         }
 
         async function enviarResposta() {
