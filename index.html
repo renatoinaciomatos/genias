@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gênias Heiki</title>
+    <title>Jogador - Controle Genius</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         body { background: #222; color: white; font-family: sans-serif; text-align: center; margin: 0; padding: 20px; }
@@ -108,21 +108,23 @@
                 const { data: eu } = await _supabase.from('jogadores').select('*').eq('id', meuId).single();
                 if (!eu) return;
 
-                if (!eu.vivo) {
-                    euEstouVivo = false;
+                // CORREÇÃO: Atualiza dinamicamente a variável local com base no banco!
+                // Se o painel ressuscitou o jogador, a variável local volta a ser verdadeira imediatamente.
+                euEstouVivo = eu.vivo;
+
+                if (!euEstouVivo) {
                     document.getElementById('statusPlayer').innerText = "💀 VOCÊ FOI ELIMINADO!";
                     bloquearBotoes(true);
                     return;
                 }
                 
-                // MÁGICA DO DESTRAVAMENTO: Se no banco está null, libera na hora!
                 if (eu.resposta === null) {
                     if (!limpouProximaRodada) {
                         limparPadraoLocal();
                         limpouProximaRodada = true; 
                     }
                     document.getElementById('statusPlayer').innerText = "Sua vez! Digite a sequência:";
-                    bloquearBotoes(false); // Destrava fisicamente os botões HTML
+                    bloquearBotoes(false); 
                 } 
                 else if (eu.resposta === "PISCANDO") {
                     limpouProximaRodada = false;
@@ -135,7 +137,6 @@
                     bloquearBotoes(true);
                 } 
                 else if (Array.isArray(eu.resposta)) {
-                    // Se possui array de respostas, está guardando avaliação
                     document.getElementById('statusPlayer').innerText = "Enviado! Aguardando resultado...";
                     bloquearBotoes(true);
                 }
@@ -149,7 +150,7 @@
         }
 
         function pressionar(cor) {
-            if(!euEstouVivo) return;
+            if(!euEstouVivo) return; // Agora vai funcionar porque euEstouVivo voltará a ser true!
             palpites.push(cor);
             piscarLocal(cor);
             document.getElementById('btnEnviar').innerText = `Enviar Sequência (${palpites.length})`;
